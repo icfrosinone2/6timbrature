@@ -149,6 +149,7 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
   <b style="font-size:14px">📜 Log timbrature (ultime 50)</b>
   <div style="display:flex; gap:4px; flex-wrap:wrap">
     <button onclick="caricaCondivise()" style="background:#0ea5e9; color:white; border:0; border-radius:6px; padding:6px 8px; font-size:11px; font-weight:800; cursor:pointer">🔄 Aggiorna</button>
+    <button onclick="apriCancellaTimbrature()" style="background:#dc2626; color:white; border:0; border-radius:6px; padding:6px 8px; font-size:11px; font-weight:800; cursor:pointer">🗑️ Cancella timbrature</button>
     <button onclick="impostaDataPartenza()" style="background:#f59e0b; color:white; border:0; border-radius:6px; padding:6px 8px; font-size:11px; font-weight:800; cursor:pointer">📅 Data di partenza (PIN)</button>
   </div>
 </div>
@@ -650,6 +651,84 @@ async function eliminaTimbraturaObj(t){
     timbratureSalvate=timbratureSalvate.filter(function(x){ return x!==t && !(t._k && x._k===t._k); });
     salvaTimbLocali(); aggiornaLog();
   }catch(e){ t._del=false; alert("Errore: non riesco a eliminare dal cloud. Riprova."); }
+}
+
+// ----- Cancellazione timbrature a scelta (tutte oppure selezionate) -----
+function apriCancellaTimbrature(){
+  var modal=document.getElementById('modalCancTimb');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalCancTimb';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10004; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var nomi=anagrafiche.map(function(a){ return a.nome; }).sort();
+  var opt='<option value="TUTTI">TUTTI i dipendenti</option>'+nomi.map(function(n){ return '<option value="'+esc(n)+'">'+esc(n)+'</option>'; }).join('');
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:14px; width:100%; max-width:560px; max-height:92vh; display:flex; flex-direction:column; border:2.5px solid #dc2626">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px"><h3 style="margin:0; color:#dc2626; font-size:16px">🗑️ Cancella timbrature</h3>'
+    +'<button onclick="chiudiCancellaTimbrature()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<select id="cancDip" onchange="renderCancellaTimbrature()" style="width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; margin-bottom:8px">'+opt+'</select>'
+    +'<div style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap">'
+    +'<button onclick="cancSeleziona(true)" style="flex:1; background:#dc2626; color:white; border:0; border-radius:8px; padding:8px; font-weight:800; font-size:12px; cursor:pointer">☑️ Seleziona TUTTE</button>'
+    +'<button onclick="cancSeleziona(false)" style="flex:1; background:#64748b; color:white; border:0; border-radius:8px; padding:8px; font-weight:800; font-size:12px; cursor:pointer">⬜ Deseleziona</button></div>'
+    +'<div id="cancLista" style="flex:1; overflow:auto; border:1px solid #e2e8f0; border-radius:8px; padding:4px; min-height:120px"></div>'
+    +'<button onclick="richiediCancellaSelezionate()" style="margin-top:10px; background:#dc2626; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer" id="cancBtn">🗑️ Elimina selezionate (PIN)</button></div>';
+  renderCancellaTimbrature();
+}
+function chiudiCancellaTimbrature(){ var m=document.getElementById('modalCancTimb'); if(m) m.style.display='none'; }
+
+function renderCancellaTimbrature(){
+  var dip=document.getElementById('cancDip').value;
+  var voci=[];
+  timbratureSalvate.forEach(function(t){ voci.push({id:'T:'+idTimb(t), t:t, ng:false}); });
+  timbratureNoGps.forEach(function(t){ voci.push({id:'N:'+idTimb(t), t:t, ng:true}); });
+  voci=voci.filter(function(v){ return dip==='TUTTI' || v.t.nome===dip; });
+  voci.sort(function(a,b){ return (b.t.timestamp||0)-(a.t.timestamp||0); });
+  var html='';
+  voci.forEach(function(v){
+    var t=v.t, colore=t.tipo==='ENTRATA'?'#16a34a':'#dc2626';
+    html+='<label style="display:flex; align-items:center; gap:8px; padding:6px; border-bottom:1px solid #f1f5f9; font-size:12px; cursor:pointer">'
+      +'<input type="checkbox" class="cancChk" data-id="'+v.id+'" onchange="cancConta()" style="width:20px; height:20px; flex:none">'
+      +'<span><span style="color:#64748b; font-size:10px">'+esc(t.data)+'</span>'+(v.ng?' <span style="color:#b45309">📵 senza GPS</span>':'')+'<br><b style="color:'+colore+'">'+esc(t.tipo)+'</b> - <b>'+esc(t.nome)+'</b> @ '+esc(t.plesso)+'</span></label>';
+  });
+  document.getElementById('cancLista').innerHTML=html || '<div style="color:#94a3b8; text-align:center; padding:16px">Nessuna timbratura</div>';
+  cancConta();
+}
+function cancSeleziona(v){ document.querySelectorAll('.cancChk').forEach(function(c){ c.checked=v; }); cancConta(); }
+function cancConta(){
+  var n=document.querySelectorAll('.cancChk:checked').length, tot=document.querySelectorAll('.cancChk').length;
+  var b=document.getElementById('cancBtn'); if(b) b.textContent='🗑️ Elimina selezionate ('+n+' di '+tot+') - PIN';
+}
+function richiediCancellaSelezionate(){
+  var ids=Array.prototype.map.call(document.querySelectorAll('.cancChk:checked'), function(c){ return c.getAttribute('data-id'); });
+  if(!ids.length){ alert('Seleziona almeno una timbratura (oppure tocca "Seleziona TUTTE").'); return; }
+  apriModalPinSicuro("Elimina "+ids.length+" timbrature", "Inserisci il PIN per eliminare "+ids.length+" timbrature da tutti i telefoni:", function(){
+    if(!confirm("Eliminare definitivamente "+ids.length+" timbrature?")) return;
+    eseguiCancellaSelezionate(ids);
+  });
+}
+async function eseguiCancellaSelezionate(ids){
+  var tl=[], nl=[];
+  ids.forEach(function(id){
+    if(id.indexOf('T:')===0){ var t=cercaTimb(id.slice(2)); if(t) tl.push(t); }
+    else { var n=cercaNg(id.slice(2)); if(n) nl.push(n); }
+  });
+  try{
+    var pt={}, pn={}, ct=0, cn=0;
+    tl.forEach(function(t){ t._del=true; if(t._k){ pt[t._k]=null; ct++; } });
+    nl.forEach(function(t){ t._del=true; if(t._k){ pn[t._k]=null; cn++; } });
+    if(ct) await fetchWithFallback("/timbrature.json",{method:"PATCH", body:JSON.stringify(pt), headers:JSON_H});
+    if(cn) await fetchWithFallback("/timbrature_nogps.json",{method:"PATCH", body:JSON.stringify(pn), headers:JSON_H});
+    timbratureSalvate=timbratureSalvate.filter(function(x){ return tl.indexOf(x)<0; });
+    timbratureNoGps=timbratureNoGps.filter(function(x){ return nl.indexOf(x)<0; });
+    salvaTimbLocali(); salvaNoGpsLocali(); aggiornaLog(); aggiornaLogNoGps();
+    renderCancellaTimbrature();
+    try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
+    alert("✅ Eliminate "+(tl.length+nl.length)+" timbrature.");
+  }catch(e){
+    tl.concat(nl).forEach(function(t){ t._del=false; });
+    alert("Errore: non riesco a eliminare dal cloud. Riprova.");
+  }
 }
 
 // ----- Azzera tutto / data di partenza -----
@@ -1318,6 +1397,7 @@ function generaResocontoDareAvere(){
     htmlModal+='<button onclick="generaResocontoInterno()" style="flex:1; background:#0ea5e9; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">📊 Genera Resoconto</button>';
     htmlModal+='<button onclick="esportaResocontoCSV()" style="flex:1; background:#16a34a; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">📥 Esporta in CSV (Excel)</button>';
     htmlModal+='</div>';
+    htmlModal+='<button onclick="apriCancellaTimbrature()" style="width:100%; margin-top:8px; background:#dc2626; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">🗑️ Cancella timbrature (tutte o a scelta)</button>';
 
     htmlModal+='<div id="risultatoResoconto" style="margin-top:20px"></div></div>';
     modal.innerHTML=htmlModal;
