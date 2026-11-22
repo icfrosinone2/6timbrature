@@ -149,7 +149,7 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
   <b style="font-size:14px">📜 Log timbrature (ultime 50)</b>
   <div style="display:flex; gap:4px; flex-wrap:wrap">
     <button onclick="caricaCondivise()" style="background:#0ea5e9; color:white; border:0; border-radius:6px; padding:6px 8px; font-size:11px; font-weight:800; cursor:pointer">🔄 Aggiorna</button>
-    <button onclick="apriCancellaTimbrature()" style="background:#dc2626; color:white; border:0; border-radius:6px; padding:6px 8px; font-size:11px; font-weight:800; cursor:pointer">🗑️ Cancella timbrature</button>
+    <button onclick="richiediCancellaTimbrature()" style="background:#dc2626; color:white; border:0; border-radius:6px; padding:6px 8px; font-size:11px; font-weight:800; cursor:pointer">🗑️ Cancella timbrature</button>
     <button onclick="impostaDataPartenza()" style="background:#f59e0b; color:white; border:0; border-radius:6px; padding:6px 8px; font-size:11px; font-weight:800; cursor:pointer">📅 Data di partenza (PIN)</button>
   </div>
 </div>
@@ -654,6 +654,10 @@ async function eliminaTimbraturaObj(t){
 }
 
 // ----- Cancellazione timbrature a scelta (tutte oppure selezionate) -----
+function richiediCancellaTimbrature(){
+  apriModalPinSicuro("Cancella timbrature", "Inserisci il PIN per aprire la cancellazione delle timbrature:", function(){ apriCancellaTimbrature(); });
+}
+
 function apriCancellaTimbrature(){
   var modal=document.getElementById('modalCancTimb');
   if(!modal){
