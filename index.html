@@ -489,10 +489,21 @@ async function avviaScanner(){
   }, (err)=>{}).catch(e=>{});
 }
 
+// Se l'ultima timbratura di oggi e' ENTRATA, la successiva e' USCITA (e viceversa)
+function tipoSuccessivo(nome){
+  var inizio=new Date(); inizio.setHours(0,0,0,0); var ms0=inizio.getTime();
+  var ultimo=null;
+  timbratureSalvate.concat(timbratureNoGps).forEach(function(t){
+    if(t.nome===nome && (t.timestamp||0)>=ms0 && (!ultimo || t.timestamp>ultimo.timestamp)) ultimo=t;
+  });
+  return (ultimo && ultimo.tipo==='ENTRATA') ? 'USCITA' : 'ENTRATA';
+}
+
 function eseguiTimbraturaAutomaticaDaQR(nome){
   const a=anagrafiche.find(x=>x.nome===nome); const plesso = vicino ? vicino.n : (a ? a.plesso : 'Pietrobono');
-  const t=registraTimbratura(nome, 'ENTRATA', plesso);
-  document.getElementById('ultimoScansionato').innerHTML=`✅ ENTRATA ${nome} @ ${plesso} ${t.ora}`;
+  const tipo = tipoSuccessivo(nome);
+  const t=registraTimbratura(nome, tipo, plesso);
+  document.getElementById('ultimoScansionato').innerHTML=`✅ ${tipo} ${nome} @ ${plesso} ${t.ora}`;
   beep();
 }
 
