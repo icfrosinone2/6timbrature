@@ -140,7 +140,7 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
 </div>
 <div style="margin-top:8px; display:grid; grid-template-columns:1fr 1fr; gap:8px">
 <button onclick="apriGestioneGiustificativi()" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; font-size:13px; cursor:pointer">📝 Inserisci Assenza / Giustificativo</button>
-<button onclick="generaResocontoDareAvere()" style="background:#0ea5e9; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; font-size:13px; cursor:pointer">📊 Resoconto ore</button>
+<button onclick="richiediResoconto()" style="background:#0ea5e9; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; font-size:13px; cursor:pointer">📊 Resoconto ore</button>
 </div>
 </div>
 
@@ -1515,6 +1515,10 @@ function generaSchedeConQR(){
     var finalFull = '<!DOCTYPE html><html><head><meta charset=\'utf-8\'><title>Badge QR</title><script src=\'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js\'><\/script><style>body{font-family:system-ui;margin:0;padding:8mm;background:#f8fafc}.header{text-align:center;margin-bottom:10px}.grid{display:block;overflow:hidden}@media print{body{padding:4mm;background:white}.no-print{display:none}@page{size:A4 landscape;margin:6mm}}.btn{background:#0ea5e9;color:white;border:0;padding:10px 20px;border-radius:10px;font-weight:800;cursor:pointer}</style></head><body><div class=\'header no-print\'><h3 style=\'margin:0;color:#0c4a6e\'>📇 Badge con QR - '+anagrafiche.length+' dipendenti</h3><button class=\'btn\' onclick=\'window.print()\'>🖨️ STAMPA</button><button class=\'btn\' style=\'background:#64748b;margin-left:6px\' onclick=\'window.close()\'>Chiudi</button></div><div class=\'grid\'>'+cardsHtml+'</div><script>var qrData = '+qrDataJson+'; setTimeout(function(){ for(var i=0;i<qrData.length;i++){ try{ var el=document.getElementById(\'qr-\'+i); if(el){ new QRCode(el, {text: qrData[i], width:120, height:120, colorDark:\'#000000\', colorLight:\'#ffffff\', correctLevel: QRCode.CorrectLevel.H}); } }catch(e){} } }, 600);<\/script></html>';
     w.document.write(finalFull); w.document.close();
   }catch(e){ alert('Errore: '+e.message); }
+}
+
+function richiediResoconto(){
+  apriModalPinSicuro("Resoconto ore", "Inserisci il PIN per aprire il Resoconto ore:", function(){ generaResocontoDareAvere(); });
 }
 
 function generaResocontoDareAvere(){
