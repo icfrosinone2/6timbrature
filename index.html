@@ -339,19 +339,41 @@ async function fetchWithFallback(path, options){
   throw new Error("Impossibile connettersi al database Cloud");
 }
 
-// ===== Orario a settimane alterne =====
+// ===== Orario a rotazione su piu' settimane (da 1 a 6) =====
 function lunediDi(d){ var x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x; }
-function settimanaAlternata(a, d){
-  if(!a || !a.alterne || !a.orariSettimanaB || !a.settimanaRif) return 'A';
-  var p=String(a.settimanaRif).split('-'); if(p.length!==3) return 'A';
+function cicloN(a){ return (a && a.cicloSettimane) ? a.cicloSettimane : ((a && a.alterne && a.orariSettimanaB) ? 2 : 1); }
+function indiceSettimana(a, d){
+  var N=cicloN(a); if(N<=1 || !a.settimanaRif) return 0;
+  var p=String(a.settimanaRif).split('-'); if(p.length!==3) return 0;
   var rif=lunediDi(new Date(+p[0],+p[1]-1,+p[2]));
   var n=Math.round((lunediDi(d)-rif)/(7*86400000));
-  return (((n%2)+2)%2)===0 ? 'A' : 'B';
+  return ((n%N)+N)%N;
+}
+function schedaSettimana(a, idx){
+  if(idx===0) return a.orariSettimana;
+  if(a.orariSettimane && a.orariSettimane[idx]) return a.orariSettimane[idx];
+  if(idx===1 && a.orariSettimanaB) return a.orariSettimanaB;
+  return a.orariSettimana;
 }
 function slotsPerData(a, d){
   var g=['dom','lun','mar','mer','gio','ven','sab'][d.getDay()];
-  var sched = settimanaAlternata(a,d)==='B' ? a.orariSettimanaB : a.orariSettimana;
+  var sched=schedaSettimana(a, indiceSettimana(a,d));
   return (sched && sched[g]) ? sched[g] : [];
+}
+function hmToMin(v){ v=String(v||'').trim(); if(!v) return null; if(v.indexOf(':')>=0){ var p=v.split(':'); var h=parseInt(p[0]), m=parseInt(p[1]||0); if(isNaN(h)||isNaN(m)) return null; return h*60+m; } var x=parseFloat(v.replace(',','.')); return isNaN(x)?null:Math.round(x*60); }
+function minToHM(m){ var sg=m<0?'-':''; m=Math.abs(m); return sg+Math.floor(m/60)+':'+('0'+(m%60)).slice(-2); }
+const TIPO_FERIE_AP='Ferie Anno Prec.', TIPO_ORE_ECC='Riposo compensativo (ore eccedenti)';
+function dataDaGiust(g){ var ms=parseDataIt(normData(g.data)); return ms===null?null:new Date(ms); }
+function ferieAPUsate(nome){ return giustificativiSalvati.filter(function(g){ return g.nome===nome && g.tipo===TIPO_FERIE_AP; }).length; }
+function oreEccUsateMin(a){
+  var tot=0;
+  giustificativiSalvati.forEach(function(g){
+    if(g.nome!==a.nome || g.tipo!==TIPO_ORE_ECC) return;
+    var m=hmToMin(g.ore);
+    if(m===null){ var d=dataDaGiust(g); m=0; if(d){ slotsPerData(a,d).forEach(function(sl){ m+=timeToMinutes(sl.uscita)-timeToMinutes(sl.entrata); }); } }
+    tot+=m;
+  });
+  return tot;
 }
 
 function getOrarioPerOggi(a){
@@ -359,7 +381,7 @@ function getOrarioPerOggi(a){
   var giorni=['dom','lun','mar','mer','gio','ven','sab'];
   var oggi=giorni[new Date().getDay()];
   var slots = slotsPerData(a, new Date());
-  return {slots: slots, sett: (a.alterne ? settimanaAlternata(a,new Date()) : null)};
+  return {slots: slots, sett: (cicloN(a)>1 ? indiceSettimana(a,new Date())+1 : null), ciclo: cicloN(a)};
 }
 
 let availableCameras=[];
@@ -869,7 +891,8 @@ function renderListaPresenzeManuali(){
   var f=document.getElementById('manFiltro') ? document.getElementById('manFiltro').value : 'TUTTI';
   var html='';
   presenzeManuali.filter(function(m){ return f==='TUTTI' || m.nome===f; }).slice(0,600).forEach(function(m){
-    html+='<label style="display:flex; align-items:center; gap:8px; padding:6px; border-bottom:1px solid #f1f5f9; font-size:12px; cursor:pointer"><input type="checkbox" class="manChk" data-k="'+esc(m._k)+'" onchange="manConta()" style="width:18px; height:18px; flex:none"><span><b>'+esc(m.nome)+'</b> - '+esc(giornoIt(m.giorno))+' - '+esc(m.entrata)+' / '+esc(m.uscita)+'</span></label>';
+    var orT = (m.parti && m.parti.length>1) ? m.parti.map(function(p){ return esc(p.e)+'-'+esc(p.u); }).join(' / ') : (esc(m.entrata)+' / '+esc(m.uscita));
+    html+='<div style="display:flex; align-items:center; gap:6px; border-bottom:1px solid #f1f5f9"><label style="flex:1; display:flex; align-items:center; gap:8px; padding:6px; font-size:12px; cursor:pointer"><input type="checkbox" class="manChk" data-k="'+esc(m._k)+'" onchange="manConta()" style="width:18px; height:18px; flex:none"><span><b>'+esc(m.nome)+'</b> - '+esc(giornoIt(m.giorno))+' - '+orT+'</span></label><button onclick="modificaPresenzaManuale(\''+esc(m._k)+'\')" style="background:#0ea5e9; color:white; border:0; border-radius:6px; padding:6px 8px; font-size:11px; font-weight:800; cursor:pointer; flex:none">✏️ Modifica</button></div>';
   });
   div.innerHTML=html || '<div style="color:#94a3b8; text-align:center; padding:14px; font-size:12px">Nessuna presenza manuale</div>';
   manConta();
@@ -892,6 +915,33 @@ async function eliminaPresenzeManualiSelezionate(){
     try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
   }catch(e){ alert('Errore: '+e.message); }
 }
+function modificaPresenzaManuale(k){
+  var m=presenzeManuali.find(function(x){ return x._k===k; }); if(!m) return;
+  var attuale = (m.parti && m.parti.length>1) ? m.parti.map(function(p){ return p.e+'-'+p.u; }).join(', ') : (m.entrata+'-'+m.uscita);
+  var v=prompt('Presenza di '+m.nome+' del '+giornoIt(m.giorno)+'\nScrivi entrata-uscita (es. 07:30-14:42).\nOrario spezzato: separa con virgola (07:30-13:30, 14:30-17:00)', attuale);
+  if(v===null) return;
+  var parti=[], ok=true, prec=-1;
+  v.split(',').forEach(function(pz){
+    var r=pz.trim().match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+    if(!r){ ok=false; return; }
+    var e=+r[1]*60+(+r[2]), u=+r[3]*60+(+r[4]);
+    if(u<=e || e<prec || +r[1]>23 || +r[3]>23 || +r[2]>59 || +r[4]>59){ ok=false; return; }
+    prec=u; parti.push({e:('0'+r[1]).slice(-2)+':'+r[2], u:('0'+r[3]).slice(-2)+':'+r[4]});
+  });
+  if(!ok || !parti.length){ alert('Orario non valido. Esempio: 07:30-14:42'); return; }
+  m.entrata=parti[0].e; m.uscita=parti[parti.length-1].u;
+  if(parti.length>1){ m.parti=parti; } else { delete m.parti; }
+  var g=m.giorno.split('-'), hm=m.entrata.split(':');
+  m.timestamp=new Date(+g[0],+g[1]-1,+g[2],+hm[0],+hm[1]).getTime();
+  var o=Object.assign({},m); delete o._k;
+  fetchWithFallback("/presenze_manuali/"+k+".json",{method:"PUT", body:JSON.stringify(o), headers:JSON_H})
+    .then(function(){ salvaManLocali(); renderListaPresenzeManuali(); try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){} alert('✅ Presenza modificata.'); })
+    .catch(function(){ alert('Errore: modifica non salvata. Riprova.'); });
+}
+function modificaPresenzaManualeDaResoconto(k){
+  apriModalPinSicuro("Modifica presenza manuale", "Inserisci il PIN per modificare questa presenza inserita a mano:", function(){ modificaPresenzaManuale(k); });
+}
+
 function eliminaPresenzaManualeDaResoconto(k){
   apriModalPinSicuro("Elimina presenza manuale", "Inserisci il PIN per eliminare questa presenza inserita a mano:", async function(){
     try{
@@ -1097,6 +1147,7 @@ const TIPI_ASSENZA = [
   ['Ferie','🌴 Ferie'],
   ['Ferie Anno Prec.','🌴 Ferie Anno Prec.'],
   ['Congedo Parentale','👶 Congedo Parentale'],
+  ['Riposo compensativo (ore eccedenti)','⏱️ Riposo compensativo (ore eccedenti)'],
   ['Festività Soppresse','🎉 Festività Soppresse (3-4/anno)'],
   ['Malattia','🏥 Malattia'],
   ['Legge 104','🤝 Legge 104'],
@@ -1162,6 +1213,7 @@ function apriGestioneGiustificativi(){
   html += '<div><label style="font-size:11px; font-weight:700; display:block">Data:</label><input type="date" id="giustData" value="'+oggiStr+'" style="'+inp+'"></div>';
   html += '<div><label style="font-size:11px; font-weight:700; display:block">Tipo Assenza / Voce:</label><select id="giustTipo" style="'+inp+'">'+optTipi+'</select></div>';
   html += '</div>';
+  html += '<div style="margin-top:6px"><label style="font-size:11px; font-weight:700; display:block">Ore usate (solo per "Riposo compensativo": es. 2:30. Vuoto = giornata intera)</label><input type="text" id="giustOre" placeholder="es. 2:30" style="'+inp+'"></div>';
   html += '<button onclick="aggiungiGiustificativo()" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; width:100%; margin-top:10px; cursor:pointer">➕ Registra Assenza</button>';
   html += '</div>';
 
@@ -1190,6 +1242,10 @@ function aggiungiGiustificativo(){
   var parti = dataInput.split('-');
   var dataFormattata = parti[2] + '/' + parti[1] + '/' + parti[0]; // gg/mm/aaaa
   var g = {nome: nome, data: dataFormattata, tipo: tipo, timestamp: Date.now()};
+  if(tipo===TIPO_ORE_ECC){
+    var oreTxt=(document.getElementById('giustOre').value||'').trim();
+    if(oreTxt){ var mo=hmToMin(oreTxt); if(mo===null || mo<=0){ alert('Ore non valide. Scrivi per esempio 2:30'); return; } g.ore=minToHM(mo); }
+  }
   giustificativiSalvati.push(g);
   salvaGiustLocali();
   renderListaGiustificativi();
@@ -1204,7 +1260,7 @@ function renderListaGiustificativi(){
   var html = '';
   ordinati.forEach(function(g){
     html += '<div style="display:flex; justify-content:space-between; align-items:center; background:white; border:1px solid #cbd5e1; padding:6px; border-radius:6px; margin-bottom:4px; font-size:11px">';
-    html += '<div><b>'+esc(g.nome)+'</b> - <span style="color:#0284c7">'+esc(g.data)+'</span>: <span style="background:#f3e8ff; color:#7e22ce; padding:2px 6px; border-radius:4px; font-weight:700">'+esc(g.tipo)+'</span></div>';
+    html += '<div><b>'+esc(g.nome)+'</b> - <span style="color:#0284c7">'+esc(g.data)+'</span>: <span style="background:#f3e8ff; color:#7e22ce; padding:2px 6px; border-radius:4px; font-weight:700">'+esc(g.tipo)+(g.ore?' ('+esc(g.ore)+')':'')+'</span></div>';
     html += '<button onclick="eliminaGiustificativo(\''+idGiust(g)+'\')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 8px; font-size:10px; cursor:pointer">Elimina</button>';
     html += '</div>';
   });
@@ -1247,9 +1303,13 @@ function stampaAssenze(){
     html+='<div style="font-size:14px; font-weight:800">'+esc(nome)+'</div>';
     if(a){ html+='<div style="font-size:11px; color:#475569">'+esc(a.qualifica||'')+(a.plesso?' - '+esc(a.plesso):'')+'</div>'; }
     html+='<table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:4px"><tr><th style="'+th+'; width:30%">Data</th><th style="'+th+'">Tipo di assenza</th></tr>';
-    lista.forEach(function(g){ html+='<tr><td style="'+td+'">'+esc(normData(g.data))+'</td><td style="'+td+'">'+esc(g.tipo)+'</td></tr>'; });
+    lista.forEach(function(g){ html+='<tr><td style="'+td+'">'+esc(normData(g.data))+'</td><td style="'+td+'">'+esc(g.tipo)+(g.ore?' ('+esc(g.ore)+')':'')+'</td></tr>'; });
     html+='</table>';
+    var extra='';
+    if(a && a.ferieAPIniziali!=null){ var fu2=ferieAPUsate(nome); extra+='<div style="font-size:11px; margin-top:3px">🌴 Ferie anno prec.: iniziali '+a.ferieAPIniziali+' - usate '+fu2+' = <b>residuo '+(a.ferieAPIniziali-fu2)+' giorni</b></div>'; }
+    if(a && a.oreEccIniziali!=null){ var ou2=oreEccUsateMin(a); extra+='<div style="font-size:11px; margin-top:3px">⏱️ Ore eccedenti: iniziali '+minToHM(a.oreEccIniziali)+' - usate '+minToHM(ou2)+' = <b>residuo '+minToHM(a.oreEccIniziali-ou2)+'</b></div>'; }
     html+='<div style="font-size:11px; margin-top:4px"><b>Riepilogo:</b> '+Object.keys(riep).map(function(k){ return esc(k)+': '+riep[k]; }).join(' &nbsp;|&nbsp; ')+' &nbsp;|&nbsp; <b>Totale giorni: '+lista.length+'</b></div>';
+    html+=extra;
     html+='</div>';
   });
   if(!nomi.length){ html+='<div style="padding:20px; text-align:center; color:#64748b">Nessuna assenza registrata nel periodo scelto.</div>'; }
@@ -1341,11 +1401,23 @@ function apriSchedaAnagrafica(nome){
 
   var oggiLun = lunediDi(new Date());
   var rifDef = a.settimanaRif || (oggiLun.getFullYear()+'-'+('0'+(oggiLun.getMonth()+1)).slice(-2)+'-'+('0'+oggiLun.getDate()).slice(-2));
+  var Nc = cicloN(a);
+  var optRot = '<option value="1"'+(Nc===1?' selected':'')+'>Orario fisso (ogni settimana uguale)</option>';
+  for(var rn=2; rn<=6; rn++){ optRot += '<option value="'+rn+'"'+(Nc===rn?' selected':'')+'>Rotazione su '+rn+' settimane</option>'; }
   htmlModal+='<div style="background:#fefce8; border:2px solid #fde047; padding:10px; border-radius:10px; margin:10px 0">';
-  htmlModal+='<label style="display:flex; gap:8px; align-items:center; font-weight:800; font-size:13px; cursor:pointer"><input type="checkbox" id="altCheck" '+(a.alterne?'checked':'')+' onchange="toggleAlterne()" style="width:20px; height:20px"> 🔁 Orario a settimane alterne (es. mattina / pomeriggio)</label>';
-  htmlModal+='<div id="altOpzioni" style="display:'+(a.alterne?'block':'none')+'; margin-top:8px; font-size:12px"><label style="font-weight:700">La "Settimana 1" è quella che contiene il giorno:</label><input type="date" id="altRif" value="'+rifDef+'" style="width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box; margin-top:3px"><div style="color:#64748b; margin-top:4px">Poi le settimane si alternano da sole: 1, 2, 1, 2...</div></div>';
+  htmlModal+='<div style="font-weight:800; font-size:13px">🔁 Rotazione settimane (turni diversi di settimana in settimana)</div>';
+  htmlModal+='<select id="rotN" onchange="rotazioneCambia()" style="width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; margin-top:6px">'+optRot+'</select>';
+  htmlModal+='<div id="altOpzioni" style="display:'+(Nc>1?'block':'none')+'; margin-top:8px; font-size:12px"><label style="font-weight:700">La "Settimana 1" è quella che contiene il giorno:</label><input type="date" id="altRif" value="'+rifDef+'" style="width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box; margin-top:3px"><div style="color:#64748b; margin-top:4px">Poi le settimane girano da sole: 1, 2, 3... e ricominciano dalla 1.</div></div>';
   htmlModal+='</div>';
-  htmlModal+='<h4 id="titoloA" style="margin:8px 0 4px 0; color:#1e293b; font-size:13px">'+(a.alterne?'⏰ SETTIMANA 1':'⏰ Orario Settimanale')+'</h4>';
+  htmlModal+='<div style="background:#f0fdf4; border:2px solid #86efac; padding:10px; border-radius:10px; margin:10px 0; font-size:12px">';
+  htmlModal+='<b style="color:#166534">🌴 Ferie anno precedente</b><div style="display:flex; gap:8px; align-items:center; margin-top:4px"><span>Residuo iniziale (giorni):</span><input type="number" step="0.5" id="editFerieIni" value="'+(a.ferieAPIniziali!=null?a.ferieAPIniziali:'')+'" style="width:90px; padding:6px; border:1.5px solid #cbd5e1; border-radius:6px"></div>';
+  var fu=ferieAPUsate(a.nome), fr=(a.ferieAPIniziali!=null) ? (a.ferieAPIniziali-fu) : null;
+  htmlModal+='<div style="margin-top:3px; color:#334155">Usate: <b>'+fu+'</b>'+(fr!==null?' &nbsp;→ Residuo: <b style="color:'+(fr<0?'#dc2626':'#16a34a')+'">'+fr+' giorni</b>':'')+'</div>';
+  htmlModal+='<b style="color:#166534; display:block; margin-top:10px">⏱️ Ore eccedenti</b><div style="display:flex; gap:8px; align-items:center; margin-top:4px"><span>Residuo iniziale (ore:minuti):</span><input type="text" id="editOreIni" placeholder="es. 12:30" value="'+(a.oreEccIniziali!=null?minToHM(a.oreEccIniziali):'')+'" style="width:90px; padding:6px; border:1.5px solid #cbd5e1; border-radius:6px"></div>';
+  var ou=oreEccUsateMin(a), orr=(a.oreEccIniziali!=null) ? (a.oreEccIniziali-ou) : null;
+  htmlModal+='<div style="margin-top:3px; color:#334155">Usate: <b>'+minToHM(ou)+'</b>'+(orr!==null?' &nbsp;→ Residuo: <b style="color:'+(orr<0?'#dc2626':'#16a34a')+'">'+minToHM(orr)+'</b>':'')+'</div>';
+  htmlModal+='<div style="color:#64748b; margin-top:6px">Si scalano da sole quando registri le assenze "Ferie Anno Prec." e "Riposo compensativo (ore eccedenti)".</div></div>';
+  htmlModal+='<h4 id="titoloA" style="margin:8px 0 4px 0; color:#1e293b; font-size:13px">'+(Nc>1?'⏰ SETTIMANA 1':'⏰ Orario Settimanale')+'</h4>';
   htmlModal+='<div id="containerGiorniScheda">';
   for(var g=0;g<giorniChiave.length;g++){
     var gk = giorniChiave[g];
@@ -1354,14 +1426,17 @@ function apriSchedaAnagrafica(nome){
   }
   htmlModal+='</div>';
 
-  var schedB = a.orariSettimanaB || a.orariSettimana;
-  htmlModal+='<div id="boxSettimanaB" style="display:'+(a.alterne?'block':'none')+'"><h4 style="margin:12px 0 4px 0; color:#b45309; font-size:13px">⏰ SETTIMANA 2</h4>';
-  htmlModal+='<div id="containerGiorniSchedaB">';
-  for(var gb=0;gb<giorniChiave.length;gb++){
-    var gkb = giorniChiave[gb];
-    htmlModal+=generaHtmlGiornoScheda('B'+gkb, giorniNomi[gkb], (schedB && schedB[gkb]) || []);
+  htmlModal+='<div id="boxSettimaneExtra">';
+  for(var w=2; w<=6; w++){
+    var schW = schedaSettimana(a, w-1) || a.orariSettimana;
+    htmlModal+='<div id="boxSett_'+w+'" style="display:'+(w<=Nc?'block':'none')+'"><h4 style="margin:12px 0 4px 0; color:#b45309; font-size:13px">⏰ SETTIMANA '+w+'</h4>';
+    for(var gw=0; gw<giorniChiave.length; gw++){
+      var gkw = giorniChiave[gw];
+      htmlModal+=generaHtmlGiornoScheda('W'+w+'_'+gkw, giorniNomi[gkw], (schW && schW[gkw]) || []);
+    }
+    htmlModal+='</div>';
   }
-  htmlModal+='</div></div>';
+  htmlModal+='</div>';
 
   htmlModal+='<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px">';
   htmlModal+='<button onclick="salvaSchedaAnagrafica(\''+jsq(a.nome)+'\')" style="background:#16a34a; color:white; border:0; border-radius:8px; padding:10px; font-weight:800">💾 Salva</button>';
@@ -1370,11 +1445,11 @@ function apriSchedaAnagrafica(nome){
   modal.innerHTML=htmlModal;
 }
 
-function toggleAlterne(){
-  var on=document.getElementById('altCheck').checked;
-  document.getElementById('altOpzioni').style.display=on?'block':'none';
-  document.getElementById('boxSettimanaB').style.display=on?'block':'none';
-  document.getElementById('titoloA').textContent = on ? '⏰ SETTIMANA 1' : '⏰ Orario Settimanale';
+function rotazioneCambia(){
+  var n=parseInt(document.getElementById('rotN').value)||1;
+  document.getElementById('altOpzioni').style.display = n>1 ? 'block' : 'none';
+  document.getElementById('titoloA').textContent = n>1 ? '⏰ SETTIMANA 1' : '⏰ Orario Settimanale';
+  for(var w=2; w<=6; w++){ var b=document.getElementById('boxSett_'+w); if(b) b.style.display = w<=n ? 'block' : 'none'; }
 }
 
 function aggiungiRigaServizioModal(){
@@ -1501,26 +1576,36 @@ function salvaSchedaAnagrafica(nomeVecchio){
     nuoveSettimane[gk] = arrDay;
   }
 
-  var alterne = document.getElementById('altCheck') ? document.getElementById('altCheck').checked : false;
-  var nuoveB = null, rif = '';
-  if(alterne){
+  var Nrot = document.getElementById('rotN') ? (parseInt(document.getElementById('rotN').value)||1) : 1;
+  var settimaneNuove = [nuoveSettimane], rif = '';
+  if(Nrot>1){
     rif = document.getElementById('altRif').value;
     if(!rif){ alert('Scegli un giorno della Settimana 1.'); return; }
-    nuoveB = {};
-    for(var gb=0;gb<giorniChiave.length;gb++){
-      var gkb = giorniChiave[gb], arrB = [];
-      var entsB = document.querySelectorAll('.inp_ent_B'+gkb), uscsB = document.querySelectorAll('.inp_usc_B'+gkb);
-      for(var kb=0; kb<entsB.length; kb++){ if(entsB[kb].value && uscsB[kb].value){ arrB.push({entrata: entsB[kb].value, uscita: uscsB[kb].value}); } }
-      nuoveB[gkb] = arrB;
+    for(var w=2; w<=Nrot; w++){
+      var sw = {};
+      for(var gb=0; gb<giorniChiave.length; gb++){
+        var gkb = giorniChiave[gb], arrB = [];
+        var entsB = document.querySelectorAll('.inp_ent_W'+w+'_'+gkb), uscsB = document.querySelectorAll('.inp_usc_W'+w+'_'+gkb);
+        for(var kb=0; kb<entsB.length; kb++){ if(entsB[kb].value && uscsB[kb].value){ arrB.push({entrata: entsB[kb].value, uscita: uscsB[kb].value}); } }
+        sw[gkb] = arrB;
+      }
+      settimaneNuove.push(sw);
     }
   }
+  var feIni = document.getElementById('editFerieIni') ? document.getElementById('editFerieIni').value.trim() : '';
+  var oreIniTxt = document.getElementById('editOreIni') ? document.getElementById('editOreIni').value.trim() : '';
+  var oreIni = oreIniTxt ? hmToMin(oreIniTxt) : null;
+  if(oreIniTxt && oreIni===null){ alert('Ore eccedenti non valide. Scrivi per esempio 12:30'); return; }
   a.nome=nuovoNome; 
   a.plesso=nuovoPlesso; 
   a.qualifica=nuovaQual;
   a.periodiServizio = nuoviPeriodi;
   a.orariSettimana=nuoveSettimane;
-  a.alterne = alterne;
-  if(alterne){ a.orariSettimanaB = nuoveB; a.settimanaRif = rif; }
+  a.cicloSettimane = Nrot;
+  a.alterne = Nrot>1;
+  if(Nrot>1){ a.orariSettimane = settimaneNuove; a.orariSettimanaB = settimaneNuove[1]; a.settimanaRif = rif; }
+  if(feIni!==''){ a.ferieAPIniziali = parseFloat(feIni.replace(',','.')); } else { delete a.ferieAPIniziali; }
+  if(oreIni!==null){ a.oreEccIniziali = oreIni; } else { delete a.oreEccIniziali; }
 
   anagrafiche.sort(function(x,y){ return x.nome.localeCompare(y.nome); });
   localStorage.setItem('anagrafiche_v95', JSON.stringify(anagrafiche));
@@ -1547,7 +1632,7 @@ function mostraOrario(){
     var txt = '';
     for(var i=0;i<slots.length;i++){ txt += '['+slots[i].entrata+'-'+slots[i].uscita+'] '; }
     let servInfo = (a.periodiServizio && a.periodiServizio.length > 0 && a.periodiServizio[0].dal) ? ` | Servizio: ${a.periodiServizio[0].dal} → ${a.periodiServizio[0].al||'?'}` : '';
-    box.innerHTML='Oggi ('+giorniMap[oggi]+'): '+txt + servInfo + (info.sett ? ' | Settimana '+(info.sett==='A'?'1':'2') : '');
+    box.innerHTML='Oggi ('+giorniMap[oggi]+'): '+txt + servInfo + (info.sett ? ' | Settimana '+info.sett+' di '+info.ciclo : '');
   }
 }
 
@@ -1761,7 +1846,7 @@ function generaResocontoInterno(){
           lavStr += '<div style="font-size:9px; margin-top:2px">';
           timbGiorn.forEach(tg => {
             if(tg.manualeK){
-              lavStr += `<div>• ${tg.tipo} (${tg.ora}) <span style="color:#0d9488">(manuale)</span>` + ((tg.tipo==='ENTRATA' && tg.primo!==false) ? ` <button onclick="eliminaPresenzaManualeDaResoconto('${tg.manualeK}')" style="background:#ef4444; color:white; border:0; border-radius:3px; padding:1px 4px; font-size:8px; cursor:pointer; margin-left:4px">Del Admin</button>` : '') + `</div>`;
+              lavStr += `<div>• ${tg.tipo} (${tg.ora}) <span style="color:#0d9488">(manuale)</span>` + ((tg.tipo==='ENTRATA' && tg.primo!==false) ? ` <button onclick="modificaPresenzaManualeDaResoconto('${tg.manualeK}')" style="background:#0ea5e9; color:white; border:0; border-radius:3px; padding:1px 4px; font-size:8px; cursor:pointer; margin-left:4px">Modifica</button><button onclick="eliminaPresenzaManualeDaResoconto('${tg.manualeK}')" style="background:#ef4444; color:white; border:0; border-radius:3px; padding:1px 4px; font-size:8px; cursor:pointer; margin-left:4px">Del Admin</button>` : '') + `</div>`;
               return;
             }
             var globalIdx = timbratureSalvate.indexOf(tg);
