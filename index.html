@@ -339,12 +339,27 @@ async function fetchWithFallback(path, options){
   throw new Error("Impossibile connettersi al database Cloud");
 }
 
+// ===== Orario a settimane alterne =====
+function lunediDi(d){ var x=new Date(d.getFullYear(),d.getMonth(),d.getDate()); x.setDate(x.getDate()-((x.getDay()+6)%7)); return x; }
+function settimanaAlternata(a, d){
+  if(!a || !a.alterne || !a.orariSettimanaB || !a.settimanaRif) return 'A';
+  var p=String(a.settimanaRif).split('-'); if(p.length!==3) return 'A';
+  var rif=lunediDi(new Date(+p[0],+p[1]-1,+p[2]));
+  var n=Math.round((lunediDi(d)-rif)/(7*86400000));
+  return (((n%2)+2)%2)===0 ? 'A' : 'B';
+}
+function slotsPerData(a, d){
+  var g=['dom','lun','mar','mer','gio','ven','sab'][d.getDay()];
+  var sched = settimanaAlternata(a,d)==='B' ? a.orariSettimanaB : a.orariSettimana;
+  return (sched && sched[g]) ? sched[g] : [];
+}
+
 function getOrarioPerOggi(a){
   if(!a) return {slots:[]};
   var giorni=['dom','lun','mar','mer','gio','ven','sab'];
   var oggi=giorni[new Date().getDay()];
-  var slots = a.orariSettimana && a.orariSettimana[oggi] ? a.orariSettimana[oggi] : [];
-  return {slots: slots};
+  var slots = slotsPerData(a, new Date());
+  return {slots: slots, sett: (a.alterne ? settimanaAlternata(a,new Date()) : null)};
 }
 
 let availableCameras=[];
@@ -821,7 +836,7 @@ async function inserisciPresenzeManuali(){
     var gIt=giornoIt(g);
     nomi.forEach(function(nome){
       var an=anagrafiche.find(function(x){ return x.nome===nome; }); if(!an) return;
-      var slots=(an.orariSettimana && an.orariSettimana[gs[curr.getDay()]]) || [];
+      var slots=slotsPerData(an, curr);
       if(!slots.length) return;
       var e,u;
       if(modo==='scelto'){ e=ent; u=usc; } else { e=slots[0].entrata; u=slots[slots.length-1].uscita; }
@@ -1324,7 +1339,13 @@ function apriSchedaAnagrafica(nome){
   }
   htmlModal+='</div></div>';
 
-  htmlModal+='<h4 style="margin:8px 0 4px 0; color:#1e293b; font-size:13px">⏰ Orario Settimanale</h4>';
+  var oggiLun = lunediDi(new Date());
+  var rifDef = a.settimanaRif || (oggiLun.getFullYear()+'-'+('0'+(oggiLun.getMonth()+1)).slice(-2)+'-'+('0'+oggiLun.getDate()).slice(-2));
+  htmlModal+='<div style="background:#fefce8; border:2px solid #fde047; padding:10px; border-radius:10px; margin:10px 0">';
+  htmlModal+='<label style="display:flex; gap:8px; align-items:center; font-weight:800; font-size:13px; cursor:pointer"><input type="checkbox" id="altCheck" '+(a.alterne?'checked':'')+' onchange="toggleAlterne()" style="width:20px; height:20px"> 🔁 Orario a settimane alterne (es. mattina / pomeriggio)</label>';
+  htmlModal+='<div id="altOpzioni" style="display:'+(a.alterne?'block':'none')+'; margin-top:8px; font-size:12px"><label style="font-weight:700">La "Settimana 1" è quella che contiene il giorno:</label><input type="date" id="altRif" value="'+rifDef+'" style="width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box; margin-top:3px"><div style="color:#64748b; margin-top:4px">Poi le settimane si alternano da sole: 1, 2, 1, 2...</div></div>';
+  htmlModal+='</div>';
+  htmlModal+='<h4 id="titoloA" style="margin:8px 0 4px 0; color:#1e293b; font-size:13px">'+(a.alterne?'⏰ SETTIMANA 1':'⏰ Orario Settimanale')+'</h4>';
   htmlModal+='<div id="containerGiorniScheda">';
   for(var g=0;g<giorniChiave.length;g++){
     var gk = giorniChiave[g];
@@ -1333,11 +1354,27 @@ function apriSchedaAnagrafica(nome){
   }
   htmlModal+='</div>';
 
+  var schedB = a.orariSettimanaB || a.orariSettimana;
+  htmlModal+='<div id="boxSettimanaB" style="display:'+(a.alterne?'block':'none')+'"><h4 style="margin:12px 0 4px 0; color:#b45309; font-size:13px">⏰ SETTIMANA 2</h4>';
+  htmlModal+='<div id="containerGiorniSchedaB">';
+  for(var gb=0;gb<giorniChiave.length;gb++){
+    var gkb = giorniChiave[gb];
+    htmlModal+=generaHtmlGiornoScheda('B'+gkb, giorniNomi[gkb], (schedB && schedB[gkb]) || []);
+  }
+  htmlModal+='</div></div>';
+
   htmlModal+='<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px">';
   htmlModal+='<button onclick="salvaSchedaAnagrafica(\''+jsq(a.nome)+'\')" style="background:#16a34a; color:white; border:0; border-radius:8px; padding:10px; font-weight:800">💾 Salva</button>';
   htmlModal+='<button onclick="chiudiSchedaAnagrafica()" style="background:#64748b; color:white; border:0; border-radius:8px; padding:10px; font-weight:800">❌ Chiudi</button>';
   htmlModal+='</div></div>';
   modal.innerHTML=htmlModal;
+}
+
+function toggleAlterne(){
+  var on=document.getElementById('altCheck').checked;
+  document.getElementById('altOpzioni').style.display=on?'block':'none';
+  document.getElementById('boxSettimanaB').style.display=on?'block':'none';
+  document.getElementById('titoloA').textContent = on ? '⏰ SETTIMANA 1' : '⏰ Orario Settimanale';
 }
 
 function aggiungiRigaServizioModal(){
@@ -1464,11 +1501,26 @@ function salvaSchedaAnagrafica(nomeVecchio){
     nuoveSettimane[gk] = arrDay;
   }
 
+  var alterne = document.getElementById('altCheck') ? document.getElementById('altCheck').checked : false;
+  var nuoveB = null, rif = '';
+  if(alterne){
+    rif = document.getElementById('altRif').value;
+    if(!rif){ alert('Scegli un giorno della Settimana 1.'); return; }
+    nuoveB = {};
+    for(var gb=0;gb<giorniChiave.length;gb++){
+      var gkb = giorniChiave[gb], arrB = [];
+      var entsB = document.querySelectorAll('.inp_ent_B'+gkb), uscsB = document.querySelectorAll('.inp_usc_B'+gkb);
+      for(var kb=0; kb<entsB.length; kb++){ if(entsB[kb].value && uscsB[kb].value){ arrB.push({entrata: entsB[kb].value, uscita: uscsB[kb].value}); } }
+      nuoveB[gkb] = arrB;
+    }
+  }
   a.nome=nuovoNome; 
   a.plesso=nuovoPlesso; 
   a.qualifica=nuovaQual;
   a.periodiServizio = nuoviPeriodi;
   a.orariSettimana=nuoveSettimane;
+  a.alterne = alterne;
+  if(alterne){ a.orariSettimanaB = nuoveB; a.settimanaRif = rif; }
 
   anagrafiche.sort(function(x,y){ return x.nome.localeCompare(y.nome); });
   localStorage.setItem('anagrafiche_v95', JSON.stringify(anagrafiche));
@@ -1495,7 +1547,7 @@ function mostraOrario(){
     var txt = '';
     for(var i=0;i<slots.length;i++){ txt += '['+slots[i].entrata+'-'+slots[i].uscita+'] '; }
     let servInfo = (a.periodiServizio && a.periodiServizio.length > 0 && a.periodiServizio[0].dal) ? ` | Servizio: ${a.periodiServizio[0].dal} → ${a.periodiServizio[0].al||'?'}` : '';
-    box.innerHTML='Oggi ('+giorniMap[oggi]+'): '+txt + servInfo;
+    box.innerHTML='Oggi ('+giorniMap[oggi]+'): '+txt + servInfo + (info.sett ? ' | Settimana '+(info.sett==='A'?'1':'2') : '');
   }
 }
 
@@ -1640,7 +1692,7 @@ function generaResocontoInterno(){
     var curr = new Date(dStart);
     while(curr <= dEnd){
       var giornoSett = giorniArr[curr.getDay()];
-      var slotsPreVisti = dipObj.orariSettimana && dipObj.orariSettimana[giornoSett] ? dipObj.orariSettimana[giornoSett] : [];
+      var slotsPreVisti = slotsPerData(dipObj, curr);
       
       if(slotsPreVisti.length > 0){
         var dataStrFormatted = curr.toLocaleDateString('it-IT');
@@ -1906,7 +1958,10 @@ async function pubblicaNuovoAvviso(){
       await fetchWithFallback("/bacheca_allegati/"+chiave+".json",{method:"PUT", body:JSON.stringify(_allegatoTmp), headers:JSON_H});
     }
     chiudiFormBacheca(); caricaBacheca();
-    alert('✅ Avviso pubblicato con successo!');
+    if(confirm('✅ Avviso pubblicato!\n\nVuoi avvisare i colleghi anche su WhatsApp?')){
+      var msg='📢 Nuova comunicazione in bacheca: "'+titolo+'". Apri l\'app IO TIMBRO per leggerla e confermare la lettura: '+location.origin+location.pathname;
+      window.open('https://wa.me/?text='+encodeURIComponent(msg),'_blank');
+    }
   }catch(e){
     if(chiave){ try{ await fetchWithFallback("/bacheca/"+chiave+".json",{method:"DELETE"}); }catch(x){} }
     btn.disabled=false; btn.textContent='📢 Pubblica avviso';
