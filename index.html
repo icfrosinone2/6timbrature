@@ -63,7 +63,7 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
 
 <div class="top-verde">
 <div class="top-left"><span style="font-size:26px; vertical-align:middle">🕒</span> IC FROSINONE 2 <span style="margin-left:6px; white-space:nowrap">"IO TIMBRO" - V6</span></div>
-<div class="top-right"><div class="top-right-logo">E. N.</div></div>
+<div class="top-right"><span id="campanella" style="display:none; background:#ef4444; color:white; font-weight:800; font-size:12px; border-radius:12px; padding:3px 8px; margin-right:6px; animation:pulsaAvviso 1.2s infinite"></span><div class="top-right-logo">E. N.</div></div>
 </div>
 
 <div class="green-banner">
@@ -490,6 +490,7 @@ function parseDataIt(s){
   if(d.getFullYear()!==a||d.getMonth()!==me-1||d.getDate()!==g) return null; return d.getTime();
 }
 function normData(s){ var m=(s||'').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/); if(!m) return s||''; return ('0'+m[1]).slice(-2)+'/'+('0'+m[2]).slice(-2)+'/'+m[3]; }
+function jsq(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;'); }
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function timbratureConteggiate(){ return timbratureSalvate.filter(function(t){ return (t.timestamp||0) >= dataInizioMs; }); }
 function idTimb(t){ return t._k || ('L'+t.timestamp); }
@@ -829,7 +830,9 @@ async function inserisciPresenzeManuali(){
       if(timbratureSalvate.some(function(t){ return t.nome===nome && normData(t.data)===gIt; })){ saltateTimb++; return; }
       if(giustificativiSalvati.some(function(x){ return x.nome===nome && normData(x.data)===gIt; })){ saltateAss++; return; }
       var hm=e.split(':');
-      nuove.push({nome:nome, giorno:g, entrata:e.slice(0,5), uscita:u.slice(0,5), timestamp:new Date(curr.getFullYear(),curr.getMonth(),curr.getDate(),+hm[0],+hm[1]).getTime(), creato:Date.now()});
+      var rec={nome:nome, giorno:g, entrata:e.slice(0,5), uscita:u.slice(0,5), timestamp:new Date(curr.getFullYear(),curr.getMonth(),curr.getDate(),+hm[0],+hm[1]).getTime(), creato:Date.now()};
+      if(modo==='orario' && slots.length>1){ rec.parti=slots.map(function(sl){ return {e:String(sl.entrata).slice(0,5), u:String(sl.uscita).slice(0,5)}; }); }
+      nuove.push(rec);
     });
     curr.setDate(curr.getDate()+1);
   }
@@ -1047,7 +1050,7 @@ function filtraElenco(mantieniScroll){
   for(var i=0;i<anagrafiche.length;i++){
     var a=anagrafiche[i];
     if(filtro && a.nome.toLowerCase().indexOf(filtro)<0 && a.plesso.toLowerCase().indexOf(filtro)<0) continue;
-    var nomeEsc = a.nome.replace(/'/g, "\'");
+    var nomeEsc = jsq(a.nome);
     var supplTxt = (a.periodiServizio && a.periodiServizio.length > 0 && a.periodiServizio[0].supplenteDi) ? 'Supplente di: '+a.periodiServizio[0].supplenteDi : '';
     var supplenteBadge = supplTxt ? '<span style="background:#8b5cf6; color:white; padding:1px 5px; border-radius:999px; font-size:9px">'+supplTxt+'</span>' : '';
     
@@ -1285,7 +1288,7 @@ function apriSchedaAnagrafica(nome){
   var htmlModal = '<div style="background:white; border-radius:14px; padding:16px; width:100%; max-width:580px; max-height:92vh; overflow:auto; border:2.5px solid #0ea5e9">';
   htmlModal+='<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px">';
   htmlModal+='<h3 style="margin:0; color:#0ea5e9">📋 Scheda Dipendente & Servizi</h3>';
-  htmlModal+='<button type="button" onclick="creaBadgeDaScheda(\''+a.nome.replace(/'/g, "\'")+'\')" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:6px 12px; font-weight:800; font-size:11px">🪪 Stampa Badge</button>';
+  htmlModal+='<button type="button" onclick="creaBadgeDaScheda(\''+jsq(a.nome)+'\')" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:6px 12px; font-weight:800; font-size:11px">🪪 Stampa Badge</button>';
   htmlModal+='</div>';
   
   htmlModal+='<label style="font-weight:700; font-size:12px">Nome:</label><input id="editNome" value="'+a.nome.replace(/"/g,'&quot;')+'" style="width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; margin:2px 0 8px 0; box-sizing:border-box">';
@@ -1331,7 +1334,7 @@ function apriSchedaAnagrafica(nome){
   htmlModal+='</div>';
 
   htmlModal+='<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px">';
-  htmlModal+='<button onclick="salvaSchedaAnagrafica(\''+a.nome.replace(/'/g, "\'")+'\')" style="background:#16a34a; color:white; border:0; border-radius:8px; padding:10px; font-weight:800">💾 Salva</button>';
+  htmlModal+='<button onclick="salvaSchedaAnagrafica(\''+jsq(a.nome)+'\')" style="background:#16a34a; color:white; border:0; border-radius:8px; padding:10px; font-weight:800">💾 Salva</button>';
   htmlModal+='<button onclick="chiudiSchedaAnagrafica()" style="background:#64748b; color:white; border:0; border-radius:8px; padding:10px; font-weight:800">❌ Chiudi</button>';
   htmlModal+='</div></div>';
   modal.innerHTML=htmlModal;
@@ -1580,6 +1583,37 @@ function minutesToHoursStr(min){
   return sign + h + 'h ' + (m < 10 ? '0' : '') + m + 'm';
 }
 
+const TOLLERANZA_MIN = 5;   // minuti di tolleranza su entrata e uscita
+const PAUSA_MIN = 30;       // pausa obbligatoria
+const SOGLIA_SPEZZATO_MIN = 360; // 6 ore
+
+// Calcola i minuti lavorati in un giorno: tolleranza 5' e pausa 30'
+function calcolaGiornata(timbGiorn, slots, minPrevisti){
+  var evs = timbGiorn.filter(function(x){ return x.tipo==='ENTRATA' || x.tipo==='USCITA'; })
+    .map(function(x){ return {tipo:x.tipo, m:timeToMinutes(x.ora)}; })
+    .sort(function(a,b){ return a.m-b.m; });
+  var pairs=[], aperta=null;
+  evs.forEach(function(e){
+    if(e.tipo==='ENTRATA'){ if(aperta===null) aperta=e.m; }
+    else if(aperta!==null){ if(e.m>aperta) pairs.push([aperta,e.m]); aperta=null; }
+  });
+  if(!pairs.length) return null;
+  var inizio=timeToMinutes(slots[0].entrata), fine=timeToMinutes(slots[slots.length-1].uscita);
+  var note=[];
+  var primo=pairs[0], ultimo=pairs[pairs.length-1];
+  if(primo[0]>inizio && primo[0]-inizio<=TOLLERANZA_MIN){ primo[0]=inizio; note.push('tolleranza entrata'); }
+  if(ultimo[1]<fine && fine-ultimo[1]<=TOLLERANZA_MIN){ ultimo[1]=fine; note.push('tolleranza uscita'); }
+  var lordo=pairs.reduce(function(t,p){ return t+(p[1]-p[0]); },0);
+  var pausa=0;
+  if(pairs.length===1){
+    // orario continuato (es. 7h12): pausa dopo l'orario di servizio; orario spezzato: dopo 6 ore
+    var soglia = slots.length===1 ? Math.max(minPrevisti, SOGLIA_SPEZZATO_MIN) : SOGLIA_SPEZZATO_MIN;
+    if(lordo>soglia) pausa=Math.min(PAUSA_MIN, lordo-soglia);
+  }
+  if(pausa>0) note.push('pausa -'+pausa+' min');
+  return {min:lordo-pausa, note:note};
+}
+
 function generaResocontoInterno(){
   var dipScelto = document.getElementById("selDip").value;
   var dal = document.getElementById("dal").value;
@@ -1622,6 +1656,13 @@ function generaResocontoInterno(){
           if(pm){
             var oE = pm.entrata.length===5 ? pm.entrata+':00' : pm.entrata, oU = pm.uscita.length===5 ? pm.uscita+':00' : pm.uscita;
             timbGiorn = [ {nome:nome, tipo:'ENTRATA', ora:oE, manualeK:pm._k}, {nome:nome, tipo:'USCITA', ora:oU, manualeK:pm._k} ];
+            if(pm.parti && pm.parti.length > 1){
+              timbGiorn = [];
+              pm.parti.forEach(function(pt, ix){
+                timbGiorn.push({nome:nome, tipo:'ENTRATA', ora:pt.e+':00', manualeK:pm._k, primo:ix===0});
+                timbGiorn.push({nome:nome, tipo:'USCITA', ora:pt.u+':00', manualeK:pm._k});
+              });
+            }
           }
         }
         var entrate = timbGiorn.filter(x => x.tipo === 'ENTRATA');
@@ -1630,15 +1671,13 @@ function generaResocontoInterno(){
         var giustificato = giustificativiSalvati.find(g => g.nome === nome && normData(g.data) === normData(dataStrFormatted));
         
         var minLavorati = 0;
+        var notaCalc = '';
         var statoStr = '';
         var coloreDiff = '#16a34a';
         
         if(entrate.length > 0 && uscite.length > 0){
-          var primoEntrataMin = timeToMinutes(entrate[0].ora);
-          var ultimaUscitaMin = timeToMinutes(uscite[uscite.length - 1].ora);
-          if(ultimaUscitaMin > primoEntrataMin){
-            minLavorati = ultimaUscitaMin - primoEntrataMin;
-          }
+          var calc = calcolaGiornata(timbGiorn, slotsPreVisti, minPrevisti);
+          if(calc){ minLavorati = calc.min; if(calc.note.length){ notaCalc = '<div style="font-size:9px; color:#b45309">☕ ' + calc.note.join(' · ') + '</div>'; } }
           var diff = minLavorati - minPrevisti;
           
           if(giustificato && giustificato.tipo === 'Permesso Orario da recuperare'){
@@ -1664,12 +1703,13 @@ function generaResocontoInterno(){
 
         var prevStr = Math.floor(minPrevisti/60) + 'h ' + (minPrevisti%60) + 'm';
         var lavStr = Math.floor(minLavorati/60) + 'h ' + (minLavorati%60) + 'm';
+        lavStr += notaCalc;
         
         if(timbGiorn.length > 0){
           lavStr += '<div style="font-size:9px; margin-top:2px">';
           timbGiorn.forEach(tg => {
             if(tg.manualeK){
-              lavStr += `<div>• ${tg.tipo} (${tg.ora}) <span style="color:#0d9488">(manuale)</span>` + (tg.tipo==='ENTRATA' ? ` <button onclick="eliminaPresenzaManualeDaResoconto('${tg.manualeK}')" style="background:#ef4444; color:white; border:0; border-radius:3px; padding:1px 4px; font-size:8px; cursor:pointer; margin-left:4px">Del Admin</button>` : '') + `</div>`;
+              lavStr += `<div>• ${tg.tipo} (${tg.ora}) <span style="color:#0d9488">(manuale)</span>` + ((tg.tipo==='ENTRATA' && tg.primo!==false) ? ` <button onclick="eliminaPresenzaManualeDaResoconto('${tg.manualeK}')" style="background:#ef4444; color:white; border:0; border-radius:3px; padding:1px 4px; font-size:8px; cursor:pointer; margin-left:4px">Del Admin</button>` : '') + `</div>`;
               return;
             }
             var globalIdx = timbratureSalvate.indexOf(tg);
@@ -1774,45 +1814,213 @@ async function caricaBacheca(){
       });
       arr.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       bachecaMessaggi = arr;
-      let newest = arr.length ? (arr[0].timestamp||0) : 0;
-      let lastSeen = localStorage.getItem('bacheca_letto_v1');
-      if(lastSeen===null){ localStorage.setItem('bacheca_letto_v1', String(newest)); lastSeen = newest; }
-      lastSeen = parseInt(lastSeen)||0;
-      window._bachecaNewest = newest;
-      let nuovi = arr.filter(m => (m.timestamp||0) > lastSeen).length;
+      let letti = getLetti();
+      if(letti===null){ letti = arr.map(m => m.firebaseKey); salvaLetti(letti); }
+      let nuovi = arr.filter(m => letti.indexOf(m.firebaseKey) < 0).length;
       let html = '';
       if(nuovi > 0){
-        html += '<div onclick="segnaBachecaLetta()" class="avviso-nuovo">🔔 NUOVA COMUNICAZIONE' + (nuovi>1 ? ' ('+nuovi+')' : '') + ' - tocca qui per segnarla come letta</div>';
+        html += '<div onclick="segnaBachecaLetta()" class="avviso-nuovo">🔔 NUOVA COMUNICAZIONE' + (nuovi>1 ? ' ('+nuovi+')' : '') + ' - tocca l\'avviso per leggerlo (qui per segnare tutte come lette)</div>';
       }
+      try{ var camp=document.getElementById('campanella'); if(camp){ camp.style.display = nuovi>0 ? 'inline-block' : 'none'; camp.textContent='🔔 '+nuovi; } }catch(e){}
+      try{ if(navigator.setAppBadge){ if(nuovi>0) navigator.setAppBadge(nuovi); else navigator.clearAppBadge(); } }catch(e){}
       document.title = (nuovi>0 ? '🔔 ' : '') + 'IC Frosinone 2 - Timbrature';
       bachecaMessaggi.forEach((m) => {
         let fk = m.firebaseKey;
-        html += `<div style="background:#fffbeb; border-left:3px solid #f59e0b; padding:6px 8px; margin-bottom:6px; border-radius:6px; display:flex; justify-content:space-between; align-items:flex-start; gap:6px"><div style="flex:1"><div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8"><b>${m.autore || 'Segreteria'}</b><span>${m.data || ''}</span></div><div style="font-weight:700; color:#1e293b; margin-top:2px">${(m.timestamp||0) > lastSeen ? '<span style="background:#ef4444; color:white; border-radius:4px; padding:1px 5px; font-size:9px; font-weight:800; margin-right:4px">NUOVO</span>' : ''}${m.titolo || 'Avviso'}</div><div style="font-size:11px; color:#475569">${m.testo}</div></div><button onclick="richiediEliminaAvviso('${fk}')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 6px; font-size:10px; font-weight:800; cursor:pointer">Del (PIN)</button></div>`;
+        html += `<div onclick="apriAvviso('${fk}')" style="cursor:pointer; background:#fffbeb; border-left:3px solid #f59e0b; padding:6px 8px; margin-bottom:6px; border-radius:6px; display:flex; justify-content:space-between; align-items:flex-start; gap:6px"><div style="flex:1"><div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8"><b>${esc(m.autore || 'Segreteria')}</b><span>${m.data || ''}</span></div><div style="font-weight:700; color:#1e293b; margin-top:2px">${letti.indexOf(fk) < 0 ? '<span style="background:#ef4444; color:white; border-radius:4px; padding:1px 5px; font-size:9px; font-weight:800; margin-right:4px">NUOVO</span>' : ''}${esc(m.titolo || 'Avviso')}</div><div style="font-size:11px; color:#475569">${esc((m.testo||'').length>110 ? (m.testo||'').slice(0,110)+'…' : (m.testo||''))}</div><div style="font-size:10px; color:#0369a1; font-weight:700; margin-top:2px">${m.allegato ? '📎 '+esc(m.allegato.nome)+' - ' : ''}👆 tocca per aprire</div></div><button onclick="event.stopPropagation(); richiediEliminaAvviso('${fk}')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 6px; font-size:10px; font-weight:800; cursor:pointer">Del (PIN)</button></div>`;
       });
       bachecaDiv.innerHTML = html || '<div style="color:#94a3b8; text-align:center">Nessun avviso</div>';
     } else { bachecaDiv.innerHTML = '<div style="color:#94a3b8; text-align:center">Nessun avviso</div>'; }
   }catch(e){}
 }
 
-function segnaBachecaLetta(){
-  try{ localStorage.setItem('bacheca_letto_v1', String(window._bachecaNewest||Date.now())); }catch(e){}
-  caricaBacheca();
+// ===== BACHECA: apri avviso + allegati =====
+let _allegatoTmp = null;
+const MAX_ALLEGATO_CHARS = 2800000; // circa 2 MB di file
+
+function leggiFileComeDataUrl(file){
+  return new Promise(function(res, rej){ var r=new FileReader(); r.onload=function(){ res(r.result); }; r.onerror=function(){ rej(new Error('lettura file')); }; r.readAsDataURL(file); });
+}
+function riduciImmagine(file){
+  return new Promise(function(res, rej){
+    var img=new Image(), url=URL.createObjectURL(file);
+    img.onload=function(){
+      var max=1600, w=img.width, h=img.height, k=Math.min(1, max/Math.max(w,h));
+      var c=document.createElement('canvas'); c.width=Math.round(w*k); c.height=Math.round(h*k);
+      c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+      URL.revokeObjectURL(url); res(c.toDataURL('image/jpeg',0.8));
+    };
+    img.onerror=function(){ URL.revokeObjectURL(url); rej(new Error('immagine non valida')); };
+    img.src=url;
+  });
 }
 
 function apriFormBacheca(){
-  var titolo = prompt("Titolo avviso:");
-  if(!titolo) return;
-  var testo = prompt("Testo avviso:");
-  if(!testo) return;
-  var ora = new Date();
-  var nuovoAvviso = { titolo: titolo, testo: testo, autore: "Segreteria IC Frosinone 2", data: ora.toLocaleDateString('it-IT')+' '+ora.toLocaleTimeString('it-IT', {hour: '2-digit', minute:'2-digit'}), timestamp: Date.now() };
-  pubblicaAvvisoCloud(nuovoAvviso);
+  _allegatoTmp=null;
+  var modal=document.getElementById('modalNuovoAvviso');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalNuovoAvviso';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10006; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var inp='width:100%; padding:10px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box; font-size:14px; font-family:inherit';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:14px; width:100%; max-width:520px; max-height:94vh; overflow:auto; border:2.5px solid #f59e0b">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px"><h3 style="margin:0; color:#d97706; font-size:16px">📢 Nuovo avviso</h3>'
+    +'<button onclick="chiudiFormBacheca()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<label style="font-size:12px; font-weight:700">Titolo:</label><input id="avvTitolo" style="'+inp+'" placeholder="Es. Riunione del 10 dicembre">'
+    +'<label style="font-size:12px; font-weight:700; display:block; margin-top:8px">Testo:</label><textarea id="avvTesto" rows="6" style="'+inp+'" placeholder="Scrivi qui il messaggio"></textarea>'
+    +'<label style="font-size:12px; font-weight:700; display:block; margin-top:8px">📎 Allegato (facoltativo: PDF, foto, Word, Excel - max 2 MB):</label>'
+    +'<input type="file" id="avvFile" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,image/*" onchange="scegliAllegato(this)" style="width:100%; font-size:13px">'
+    +'<div id="avvFileInfo" style="font-size:12px; color:#0369a1; margin-top:4px"></div>'
+    +'<button id="avvBtn" onclick="pubblicaNuovoAvviso()" style="margin-top:12px; width:100%; background:#f59e0b; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer">📢 Pubblica avviso</button></div>';
+}
+function chiudiFormBacheca(){ var m=document.getElementById('modalNuovoAvviso'); if(m) m.style.display='none'; _allegatoTmp=null; }
+
+async function scegliAllegato(input){
+  var info=document.getElementById('avvFileInfo'); _allegatoTmp=null;
+  var f=input.files && input.files[0]; if(!f){ info.textContent=''; return; }
+  info.textContent='⏳ Preparo il file...';
+  try{
+    var dati = f.type.indexOf('image/')===0 ? await riduciImmagine(f) : await leggiFileComeDataUrl(f);
+    if(dati.length > MAX_ALLEGATO_CHARS){ info.innerHTML='<span style="color:#dc2626">⛔ File troppo grande (max 2 MB). Scegline uno più piccolo.</span>'; input.value=''; return; }
+    var nome=f.name; if(f.type.indexOf('image/')===0 && !/\.jpe?g$/i.test(nome)) nome=nome.replace(/\.[^.]*$/,'')+'.jpg';
+    _allegatoTmp={nome:nome, tipo:(f.type.indexOf('image/')===0 ? 'image/jpeg' : (f.type||'application/octet-stream')), dati:dati};
+    info.textContent='✅ '+nome+' ('+Math.round(dati.length*0.75/1024)+' KB)';
+  }catch(e){ info.innerHTML='<span style="color:#dc2626">⛔ Non riesco a leggere il file.</span>'; input.value=''; }
+}
+
+async function pubblicaNuovoAvviso(){
+  var titolo=document.getElementById('avvTitolo').value.trim(), testo=document.getElementById('avvTesto').value.trim();
+  if(!titolo){ alert('Scrivi il titolo.'); return; }
+  if(!testo && !_allegatoTmp){ alert('Scrivi il testo oppure allega un file.'); return; }
+  var btn=document.getElementById('avvBtn'); btn.disabled=true; btn.textContent='⏳ Invio in corso...';
+  var ora=new Date();
+  var avviso={titolo:titolo, testo:testo, autore:"Segreteria IC Frosinone 2", data:ora.toLocaleDateString('it-IT')+' '+ora.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}), timestamp:Date.now()};
+  if(_allegatoTmp){ avviso.allegato={nome:_allegatoTmp.nome, tipo:_allegatoTmp.tipo, kb:Math.round(_allegatoTmp.dati.length*0.75/1024)}; }
+  var chiave=null;
+  try{
+    var r=await fetchWithFallback("/bacheca.json",{method:"POST", body:JSON.stringify(avviso), headers:JSON_H});
+    var j=await r.json(); chiave=j && j.name;
+    if(_allegatoTmp){
+      if(!chiave) throw new Error('avviso non creato');
+      await fetchWithFallback("/bacheca_allegati/"+chiave+".json",{method:"PUT", body:JSON.stringify(_allegatoTmp), headers:JSON_H});
+    }
+    chiudiFormBacheca(); caricaBacheca();
+    alert('✅ Avviso pubblicato con successo!');
+  }catch(e){
+    if(chiave){ try{ await fetchWithFallback("/bacheca/"+chiave+".json",{method:"DELETE"}); }catch(x){} }
+    btn.disabled=false; btn.textContent='📢 Pubblica avviso';
+    alert('Errore: avviso non pubblicato. Controlla la connessione e riprova.');
+  }
+}
+
+function getLetti(){ try{ var v=localStorage.getItem('bacheca_letti_v2'); return v===null ? null : JSON.parse(v); }catch(e){ return null; } }
+function salvaLetti(a){ try{ localStorage.setItem('bacheca_letti_v2', JSON.stringify(a.slice(-300))); }catch(e){} }
+function segnaLetto(fk){ var l=getLetti()||[]; if(l.indexOf(fk)<0){ l.push(fk); salvaLetti(l); } }
+function segnaBachecaLetta(){
+  var l=getLetti()||[]; bachecaMessaggi.forEach(function(m){ if(l.indexOf(m.firebaseKey)<0) l.push(m.firebaseKey); });
+  salvaLetti(l); caricaBacheca();
+}
+function chiaveNome(n){ return String(n).replace(/[^A-Za-z0-9]/g,'_'); }
+
+function apriAvviso(fk){
+  var m=bachecaMessaggi.find(function(x){ return x.firebaseKey===fk; }); if(!m) return;
+  segnaLetto(fk); caricaBacheca();
+  var modal=document.getElementById('modalAvviso');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalAvviso';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10006; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var nomi=anagrafiche.map(function(a){ return a.nome; }).sort();
+  var memo=''; try{ memo=localStorage.getItem('nome_lettore_v1')||''; }catch(e){}
+  var optN='<option value="">-- scegli il tuo nome --</option>'+nomi.map(function(n){ return '<option value="'+esc(n)+'"'+(n===memo?' selected':'')+'>'+esc(n)+'</option>'; }).join('');
+  var all=m.allegato ? '<div style="margin-top:12px; border:2px solid #0ea5e9; background:#f0f9ff; border-radius:10px; padding:10px"><div style="font-size:13px; font-weight:800; color:#0369a1">📎 '+esc(m.allegato.nome)+(m.allegato.kb?' <span style="font-weight:600; color:#64748b">('+m.allegato.kb+' KB)</span>':'')+'</div>'
+    +'<div style="display:flex; gap:8px; margin-top:8px"><button onclick="apriAllegato(\''+fk+'\',false)" style="flex:1; background:#0ea5e9; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; cursor:pointer">👁️ Apri</button>'
+    +'<button onclick="apriAllegato(\''+fk+'\',true)" style="flex:1; background:#16a34a; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; cursor:pointer">⬇️ Scarica</button></div>'
+    +'<div id="allegatoStato" style="font-size:11px; color:#64748b; margin-top:6px"></div><div id="allegatoAnteprima"></div></div>' : '';
+  var lettura='<div style="margin-top:14px; border-top:2px solid #e2e8f0; padding-top:10px">'
+    +'<div style="font-size:12px; font-weight:800; color:#334155">✅ Conferma di aver letto</div>'
+    +'<select id="lettNome" style="width:100%; padding:9px; border:1.5px solid #cbd5e1; border-radius:8px; margin-top:6px">'+optN+'</select>'
+    +'<button onclick="confermaLettura(\''+fk+'\')" style="margin-top:6px; width:100%; background:#16a34a; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; cursor:pointer">✅ Ho letto</button>'
+    +'<div id="lettStato" style="font-size:12px; color:#16a34a; margin-top:6px; font-weight:700"></div>'
+    +'<button onclick="richiediChiHaLetto(\''+fk+'\')" style="margin-top:8px; width:100%; background:#64748b; color:white; border:0; border-radius:8px; padding:8px; font-weight:700; font-size:12px; cursor:pointer">👁️ Chi ha letto (PIN)</button></div>';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:16px; width:100%; max-width:560px; max-height:94vh; overflow:auto; border:2.5px solid #f59e0b">'
+    +'<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px"><div><div style="font-size:11px; color:#94a3b8">'+esc(m.autore||'Segreteria')+' - '+esc(m.data||'')+'</div>'
+    +'<h3 style="margin:2px 0 0 0; color:#1e293b; font-size:17px">'+esc(m.titolo||'Avviso')+'</h3></div>'
+    +'<button onclick="chiudiAvviso()" style="background:#64748b; color:white; border:0; border-radius:50%; width:30px; height:30px; font-weight:800; cursor:pointer; flex:none">✕</button></div>'
+    +'<div style="margin-top:10px; font-size:14px; color:#334155; white-space:pre-wrap; word-break:break-word">'+esc(m.testo||'')+'</div>'+all+lettura+'</div>';
+  if(memo) verificaLettura(fk, memo);
+}
+function chiudiAvviso(){ var m=document.getElementById('modalAvviso'); if(m) m.style.display='none'; }
+
+async function verificaLettura(fk, nome){
+  try{
+    var r=await fetchWithFallback("/bacheca_letture/"+fk+"/"+chiaveNome(nome)+".json"); var v=await r.json();
+    var st=document.getElementById('lettStato'); if(st && v) st.textContent='✅ Lettura già registrata per '+nome;
+  }catch(e){}
+}
+async function confermaLettura(fk){
+  var nome=document.getElementById('lettNome').value, st=document.getElementById('lettStato');
+  if(!nome){ alert('Scegli prima il tuo nome.'); return; }
+  try{
+    await fetchWithFallback("/bacheca_letture/"+fk+"/"+chiaveNome(nome)+".json",{method:"PUT", body:JSON.stringify({nome:nome, ts:Date.now(), data:new Date().toLocaleDateString('it-IT')+' '+new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'})}), headers:JSON_H});
+    try{ localStorage.setItem('nome_lettore_v1', nome); }catch(e){}
+    st.textContent='✅ Lettura registrata: '+nome;
+  }catch(e){ alert('Errore: lettura non registrata. Riprova.'); }
+}
+function richiediChiHaLetto(fk){
+  apriModalPinSicuro("Chi ha letto", "Inserisci il PIN per vedere chi ha letto questa comunicazione:", function(){ mostraChiHaLetto(fk); });
+}
+async function mostraChiHaLetto(fk){
+  var m=bachecaMessaggi.find(function(x){ return x.firebaseKey===fk; });
+  var letti=[];
+  try{ var r=await fetchWithFallback("/bacheca_letture/"+fk+".json"); var v=await r.json(); if(v){ Object.keys(v).forEach(function(k){ if(v[k] && v[k].nome) letti.push(v[k]); }); } }catch(e){ alert('Errore nel leggere i dati.'); return; }
+  letti.sort(function(a,b){ return (a.nome<b.nome)?-1:1; });
+  var set=new Set(letti.map(function(x){ return x.nome; }));
+  var non=anagrafiche.map(function(a){ return a.nome; }).filter(function(n){ return !set.has(n); }).sort();
+  var modal=document.getElementById('modalChiLetto');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalChiLetto';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10007; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:14px; width:100%; max-width:520px; max-height:92vh; overflow:auto; border:2.5px solid #64748b">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center"><h3 style="margin:0; font-size:15px">👁️ '+esc(m?m.titolo:'Comunicazione')+'</h3><button onclick="document.getElementById(\'modalChiLetto\').style.display=\'none\'" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<div style="margin-top:8px; font-weight:800; color:#16a34a; font-size:13px">✅ Hanno letto ('+letti.length+')</div>'
+    +(letti.map(function(x){ return '<div style="font-size:12px; padding:4px 0; border-bottom:1px solid #f1f5f9">'+esc(x.nome)+' <span style="color:#94a3b8">- '+esc(x.data||'')+'</span></div>'; }).join('') || '<div style="font-size:12px; color:#94a3b8">Nessuno</div>')
+    +'<div style="margin-top:12px; font-weight:800; color:#dc2626; font-size:13px">⏳ Non hanno ancora letto ('+non.length+')</div>'
+    +(non.map(function(n){ return '<div style="font-size:12px; padding:4px 0; border-bottom:1px solid #f1f5f9">'+esc(n)+'</div>'; }).join('') || '<div style="font-size:12px; color:#94a3b8">Tutti hanno letto</div>')
+    +'<div style="font-size:10px; color:#94a3b8; margin-top:8px">Conta chi ha toccato "Ho letto" scegliendo il proprio nome.</div></div>';
+}
+
+
+async function apriAllegato(fk, scarica){
+  var st=document.getElementById('allegatoStato'); if(st) st.textContent='⏳ Scarico il file...';
+  try{
+    var r=await fetchWithFallback("/bacheca_allegati/"+fk+".json"); var a=await r.json();
+    if(!a || !a.dati){ if(st) st.textContent='⛔ Allegato non trovato.'; return; }
+    var blob=await (await fetch(a.dati)).blob();
+    var url=URL.createObjectURL(blob);
+    if(a.tipo && a.tipo.indexOf('image/')===0 && !scarica){
+      var box=document.getElementById('allegatoAnteprima'); if(box) box.innerHTML='<img src="'+url+'" style="max-width:100%; margin-top:8px; border-radius:8px">';
+      if(st) st.textContent=''; return;
+    }
+    if(scarica){
+      var l=document.createElement('a'); l.href=url; l.download=a.nome||'allegato'; l.style.display='none'; document.body.appendChild(l); l.click(); document.body.removeChild(l);
+    } else {
+      var w=window.open(url,'_blank');
+      if(!w){ var l2=document.createElement('a'); l2.href=url; l2.download=a.nome||'allegato'; document.body.appendChild(l2); l2.click(); document.body.removeChild(l2); }
+    }
+    if(st) st.textContent='';
+  }catch(e){ if(st) st.textContent='⛔ Errore nel scaricare il file. Riprova.'; }
 }
 
 async function pubblicaAvvisoCloud(avviso){
   try{
     await fetchWithFallback("/bacheca.json", { method: "POST", body: JSON.stringify(avviso), headers: {"Content-Type":"application/json"} });
-    try{ localStorage.setItem('bacheca_letto_v1', String(avviso.timestamp||Date.now())); }catch(e){}
     caricaBacheca();
     alert("✅ Avviso pubblicato con successo!");
   }catch(e){ alert("Errore: "+e.message); }
@@ -1827,6 +2035,7 @@ function richiediEliminaAvviso(firebaseKey){
 async function eliminaAvvisoBachecaEsecuzione(firebaseKey){
   try{
     await fetchWithFallback("/bacheca/" + firebaseKey + ".json", { method: "DELETE" });
+    try{ await fetchWithFallback("/bacheca_allegati/" + firebaseKey + ".json", { method: "DELETE" }); }catch(e){}
     caricaBacheca();
     alert("✅ Avviso eliminato con successo!");
   }catch(e){ alert("Errore durante l'eliminazione: "+e.message); }
