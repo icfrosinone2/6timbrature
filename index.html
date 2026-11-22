@@ -731,6 +731,153 @@ async function eseguiCancellaSelezionate(ids){
   }
 }
 
+// ===== PRESENZE MANUALI (zona separata, dati separati: /presenze_manuali) =====
+let presenzeManuali = JSON.parse(localStorage.getItem('presenze_man_v1')||'[]');
+function salvaManLocali(){ try{ localStorage.setItem('presenze_man_v1', JSON.stringify(presenzeManuali)); }catch(e){} }
+function giornoIt(g){ var p=(g||'').split('-'); return p.length===3 ? p[2]+'/'+p[1]+'/'+p[0] : g; }
+function chiaveMan(nome,giorno){ return String(nome).replace(/[^A-Za-z0-9]/g,'_')+'_'+String(giorno).replace(/-/g,''); }
+
+async function caricaPresenzeManuali(){
+  try{
+    let r=await fetchWithFallback("/presenze_manuali.json"); let val=await r.json();
+    let arr=[]; if(val){ Object.keys(val).forEach(function(k){ var v=val[k]; if(v && v.nome && v.giorno){ arr.push(Object.assign({},v,{_k:k})); } }); }
+    arr.sort(function(a,b){ return (a.giorno<b.giorno?1:a.giorno>b.giorno?-1:0) || (a.nome<b.nome?-1:1); });
+    presenzeManuali=arr; salvaManLocali();
+    if(document.getElementById('manLista')) renderListaPresenzeManuali();
+  }catch(e){}
+}
+
+function richiediPresenzeManuali(){
+  apriModalPinSicuro("Presenze manuali", "Inserisci il PIN per aprire l'inserimento manuale delle presenze:", function(){ apriPresenzeManuali(); });
+}
+
+function apriPresenzeManuali(){
+  var modal=document.getElementById('modalPresenzeMan');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalPresenzeMan';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10005; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var nomi=anagrafiche.map(function(a){ return a.nome; }).sort();
+  var optT='<option value="TUTTI">TUTTI i dipendenti</option>'+nomi.map(function(n){ return '<option value="'+esc(n)+'">'+esc(n)+'</option>'; }).join('');
+  var optS=nomi.map(function(n){ return '<option value="'+esc(n)+'">'+esc(n)+'</option>'; }).join('');
+  var ieri=new Date(Date.now()-86400000); var alStr=ieri.getFullYear()+'-'+('0'+(ieri.getMonth()+1)).slice(-2)+'-'+('0'+ieri.getDate()).slice(-2);
+  var annoS=new Date().getMonth()>=8 ? new Date().getFullYear() : new Date().getFullYear()-1;
+  var inp='width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:14px; width:100%; max-width:560px; max-height:94vh; overflow:auto; border:2.5px solid #0d9488">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px"><h3 style="margin:0; color:#0d9488; font-size:16px">✍️ Inserisci presenze manuali</h3>'
+    +'<button onclick="chiudiPresenzeManuali()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<div style="font-size:11px; color:#475569; margin-bottom:8px">Serve per recuperare i giorni passati (es. dal 1 settembre). Sono dati a parte: non toccano le timbrature normali, ma contano nel Resoconto ore. I giorni che hanno già una timbratura o un\'assenza vengono saltati.</div>'
+    +'<label style="font-size:12px; font-weight:700">Dipendente:</label><select id="manDip" style="'+inp+'">'+optT+'</select>'
+    +'<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px"><div><label style="font-size:12px; font-weight:700">Dal giorno:</label><input type="date" id="manDal" value="'+annoS+'-09-01" style="'+inp+'"></div>'
+    +'<div><label style="font-size:12px; font-weight:700">Al giorno:</label><input type="date" id="manAl" value="'+alStr+'" style="'+inp+'"></div></div>'
+    +'<div style="margin-top:10px; font-size:12px; font-weight:700">Orario da inserire:</div>'
+    +'<label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-top:4px"><input type="radio" name="manModo" value="orario" checked onchange="manModo()" style="width:18px; height:18px"> Come da orario di servizio di ognuno</label>'
+    +'<label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-top:4px"><input type="radio" name="manModo" value="scelto" onchange="manModo()" style="width:18px; height:18px"> Orario che scelgo io</label>'
+    +'<div id="manOrari" style="display:none; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px"><div><label style="font-size:12px; font-weight:700">Entrata:</label><input type="time" id="manEnt" value="07:30" style="'+inp+'"></div>'
+    +'<div><label style="font-size:12px; font-weight:700">Uscita:</label><input type="time" id="manUsc" value="14:42" style="'+inp+'"></div></div>'
+    +'<button onclick="inserisciPresenzeManuali()" style="margin-top:12px; width:100%; background:#0d9488; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer">✍️ Inserisci presenze</button>'
+    +'<div style="margin-top:16px; border-top:2px solid #e2e8f0; padding-top:10px"><b style="font-size:13px">Presenze manuali già inserite</b>'
+    +'<select id="manFiltro" onchange="renderListaPresenzeManuali()" style="'+inp+'; margin-top:6px"><option value="TUTTI">TUTTI i dipendenti</option>'+optS+'</select>'
+    +'<div style="display:flex; gap:6px; margin-top:6px"><button onclick="manSeleziona(true)" style="flex:1; background:#64748b; color:white; border:0; border-radius:8px; padding:8px; font-weight:800; font-size:12px; cursor:pointer">☑️ Seleziona tutte</button>'
+    +'<button onclick="manSeleziona(false)" style="flex:1; background:#94a3b8; color:white; border:0; border-radius:8px; padding:8px; font-weight:800; font-size:12px; cursor:pointer">⬜ Deseleziona</button></div>'
+    +'<div id="manLista" style="max-height:240px; overflow:auto; border:1px solid #e2e8f0; border-radius:8px; padding:4px; margin-top:6px"></div>'
+    +'<button onclick="eliminaPresenzeManualiSelezionate()" id="manDelBtn" style="margin-top:8px; width:100%; background:#dc2626; color:white; border:0; border-radius:10px; padding:10px; font-weight:800; cursor:pointer">🗑️ Elimina selezionate</button></div></div>';
+  renderListaPresenzeManuali();
+  caricaPresenzeManuali();
+}
+function chiudiPresenzeManuali(){ var m=document.getElementById('modalPresenzeMan'); if(m) m.style.display='none'; }
+function manModo(){
+  var scelto=document.querySelector('input[name="manModo"]:checked').value==='scelto';
+  document.getElementById('manOrari').style.display=scelto?'grid':'none';
+}
+
+async function inserisciPresenzeManuali(){
+  var dip=document.getElementById('manDip').value, dal=document.getElementById('manDal').value, al=document.getElementById('manAl').value;
+  var modo=document.querySelector('input[name="manModo"]:checked').value;
+  var ent=document.getElementById('manEnt').value, usc=document.getElementById('manUsc').value;
+  if(!dal||!al){ alert('Scegli le date Dal / Al.'); return; }
+  if(dal>al){ alert('La data "Dal" è dopo la data "Al".'); return; }
+  if(modo==='scelto'){
+    if(!ent||!usc){ alert('Scrivi entrata e uscita.'); return; }
+    if(timeToMinutes(usc)<=timeToMinutes(ent)){ alert("L'uscita deve essere dopo l'entrata."); return; }
+  }
+  var nomi = dip==='TUTTI' ? anagrafiche.map(function(a){ return a.nome; }) : [dip];
+  var gs=['dom','lun','mar','mer','gio','ven','sab'];
+  var esistentiMan=new Set(presenzeManuali.map(function(m){ return m.nome+'|'+m.giorno; }));
+  var nuove=[], saltateTimb=0, saltateAss=0, saltateMan=0;
+  var da=dal.split('-'), a2=al.split('-');
+  var curr=new Date(+da[0],+da[1]-1,+da[2]), fine=new Date(+a2[0],+a2[1]-1,+a2[2]);
+  while(curr<=fine){
+    var g=curr.getFullYear()+'-'+('0'+(curr.getMonth()+1)).slice(-2)+'-'+('0'+curr.getDate()).slice(-2);
+    var gIt=giornoIt(g);
+    nomi.forEach(function(nome){
+      var an=anagrafiche.find(function(x){ return x.nome===nome; }); if(!an) return;
+      var slots=(an.orariSettimana && an.orariSettimana[gs[curr.getDay()]]) || [];
+      if(!slots.length) return;
+      var e,u;
+      if(modo==='scelto'){ e=ent; u=usc; } else { e=slots[0].entrata; u=slots[slots.length-1].uscita; }
+      if(!e||!u) return;
+      if(esistentiMan.has(nome+'|'+g)){ saltateMan++; return; }
+      if(timbratureSalvate.some(function(t){ return t.nome===nome && normData(t.data)===gIt; })){ saltateTimb++; return; }
+      if(giustificativiSalvati.some(function(x){ return x.nome===nome && normData(x.data)===gIt; })){ saltateAss++; return; }
+      var hm=e.split(':');
+      nuove.push({nome:nome, giorno:g, entrata:e.slice(0,5), uscita:u.slice(0,5), timestamp:new Date(curr.getFullYear(),curr.getMonth(),curr.getDate(),+hm[0],+hm[1]).getTime(), creato:Date.now()});
+    });
+    curr.setDate(curr.getDate()+1);
+  }
+  if(!nuove.length){ alert('Niente da inserire.\nGiorni saltati: '+saltateTimb+' con timbrature, '+saltateAss+' con assenza, '+saltateMan+' già inseriti a mano.'); return; }
+  var persone=new Set(nuove.map(function(n){ return n.nome; })).size;
+  if(!confirm('Inserire '+nuove.length+' presenze per '+persone+' dipendenti ('+giornoIt(dal)+' - '+giornoIt(al)+')?\n\nSaltati: '+saltateTimb+' giorni con timbrature, '+saltateAss+' con assenza, '+saltateMan+' già inseriti.')) return;
+  try{
+    for(var i=0;i<nuove.length;i+=300){
+      var p={}; nuove.slice(i,i+300).forEach(function(n){ p[chiaveMan(n.nome,n.giorno)]=n; });
+      await fetchWithFallback("/presenze_manuali.json",{method:"PATCH", body:JSON.stringify(p), headers:JSON_H});
+    }
+    await caricaPresenzeManuali();
+    alert('✅ Inserite '+nuove.length+' presenze. Le vedi nel Resoconto ore.');
+  }catch(e){ alert('Errore: '+e.message); }
+}
+
+function renderListaPresenzeManuali(){
+  var div=document.getElementById('manLista'); if(!div) return;
+  var f=document.getElementById('manFiltro') ? document.getElementById('manFiltro').value : 'TUTTI';
+  var html='';
+  presenzeManuali.filter(function(m){ return f==='TUTTI' || m.nome===f; }).slice(0,600).forEach(function(m){
+    html+='<label style="display:flex; align-items:center; gap:8px; padding:6px; border-bottom:1px solid #f1f5f9; font-size:12px; cursor:pointer"><input type="checkbox" class="manChk" data-k="'+esc(m._k)+'" onchange="manConta()" style="width:18px; height:18px; flex:none"><span><b>'+esc(m.nome)+'</b> - '+esc(giornoIt(m.giorno))+' - '+esc(m.entrata)+' / '+esc(m.uscita)+'</span></label>';
+  });
+  div.innerHTML=html || '<div style="color:#94a3b8; text-align:center; padding:14px; font-size:12px">Nessuna presenza manuale</div>';
+  manConta();
+}
+function manSeleziona(v){ document.querySelectorAll('.manChk').forEach(function(c){ c.checked=v; }); manConta(); }
+function manConta(){
+  var n=document.querySelectorAll('.manChk:checked').length, tot=document.querySelectorAll('.manChk').length;
+  var b=document.getElementById('manDelBtn'); if(b) b.textContent='🗑️ Elimina selezionate ('+n+' di '+tot+')';
+}
+async function eliminaPresenzeManualiSelezionate(){
+  var ks=Array.prototype.map.call(document.querySelectorAll('.manChk:checked'), function(c){ return c.getAttribute('data-k'); });
+  if(!ks.length){ alert('Seleziona almeno una presenza (oppure "Seleziona tutte").'); return; }
+  if(!confirm('Eliminare '+ks.length+' presenze manuali?')) return;
+  try{
+    for(var i=0;i<ks.length;i+=300){
+      var p={}; ks.slice(i,i+300).forEach(function(k){ p[k]=null; });
+      await fetchWithFallback("/presenze_manuali.json",{method:"PATCH", body:JSON.stringify(p), headers:JSON_H});
+    }
+    await caricaPresenzeManuali();
+    try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
+  }catch(e){ alert('Errore: '+e.message); }
+}
+function eliminaPresenzaManualeDaResoconto(k){
+  apriModalPinSicuro("Elimina presenza manuale", "Inserisci il PIN per eliminare questa presenza inserita a mano:", async function(){
+    try{
+      await fetchWithFallback("/presenze_manuali/"+k+".json",{method:"DELETE"});
+      presenzeManuali=presenzeManuali.filter(function(m){ return m._k!==k; }); salvaManLocali();
+      generaResocontoInterno();
+    }catch(e){ alert('Errore: '+e.message); }
+  });
+}
+
 // ----- Azzera tutto / data di partenza -----
 function richiediAzzeraDatabase(){
   apriModalPinSicuro("Azzera Database Cloud", "Inserisci il PIN per azzerare tutte le timbrature nel cloud:", function(){
@@ -1397,11 +1544,13 @@ function generaResocontoDareAvere(){
     htmlModal+='<button onclick="generaResocontoInterno()" style="flex:1; background:#0ea5e9; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">📊 Genera Resoconto</button>';
     htmlModal+='<button onclick="esportaResocontoCSV()" style="flex:1; background:#16a34a; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">📥 Esporta in CSV (Excel)</button>';
     htmlModal+='</div>';
+    htmlModal+='<button onclick="richiediPresenzeManuali()" style="width:100%; margin-top:8px; background:#0d9488; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">✍️ Inserisci presenze manuali (PIN)</button>';
     htmlModal+='<button onclick="apriCancellaTimbrature()" style="width:100%; margin-top:8px; background:#dc2626; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">🗑️ Cancella timbrature (tutte o a scelta)</button>';
 
     htmlModal+='<div id="risultatoResoconto" style="margin-top:20px"></div></div>';
     modal.innerHTML=htmlModal;
     window._timbraturePerResoconto = timbratureConteggiate().slice();
+    caricaPresenzeManuali();
   }catch(e){}
 }
 
@@ -1458,6 +1607,13 @@ function generaResocontoInterno(){
         });
         
         var timbGiorn = timbratureSalvate.filter(t => t.nome === nome && (t.data||'').startsWith(dataStrFormatted));
+        if(timbGiorn.length === 0){
+          var pm = presenzeManuali.find(function(m){ return m.nome === nome && normData(giornoIt(m.giorno)) === normData(dataStrFormatted); });
+          if(pm){
+            var oE = pm.entrata.length===5 ? pm.entrata+':00' : pm.entrata, oU = pm.uscita.length===5 ? pm.uscita+':00' : pm.uscita;
+            timbGiorn = [ {nome:nome, tipo:'ENTRATA', ora:oE, manualeK:pm._k}, {nome:nome, tipo:'USCITA', ora:oU, manualeK:pm._k} ];
+          }
+        }
         var entrate = timbGiorn.filter(x => x.tipo === 'ENTRATA');
         var uscite = timbGiorn.filter(x => x.tipo === 'USCITA');
         
@@ -1502,6 +1658,10 @@ function generaResocontoInterno(){
         if(timbGiorn.length > 0){
           lavStr += '<div style="font-size:9px; margin-top:2px">';
           timbGiorn.forEach(tg => {
+            if(tg.manualeK){
+              lavStr += `<div>• ${tg.tipo} (${tg.ora}) <span style="color:#0d9488">(manuale)</span>` + (tg.tipo==='ENTRATA' ? ` <button onclick="eliminaPresenzaManualeDaResoconto('${tg.manualeK}')" style="background:#ef4444; color:white; border:0; border-radius:3px; padding:1px 4px; font-size:8px; cursor:pointer; margin-left:4px">Del Admin</button>` : '') + `</div>`;
+              return;
+            }
             var globalIdx = timbratureSalvate.indexOf(tg);
             lavStr += `<div>• ${tg.tipo} (${tg.ora}) <button onclick="adminEliminaTimbraturaDaResoconto(${globalIdx})" style="background:#ef4444; color:white; border:0; border-radius:3px; padding:1px 4px; font-size:8px; cursor:pointer; margin-left:4px">Del Admin</button></div>`;
           });
@@ -1671,13 +1831,14 @@ function confermaPinSicuro(){
   }
 }
 
+setInterval(()=>{ caricaPresenzeManuali(); }, 30000);
 setInterval(()=>{ caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); caricaConfig(); }, 3000);
 
 window.addEventListener('load', ()=>{ 
   renderPlessiUI();
   try{ caricaAnagraficaCloud(); }catch(e){}
   try{ aggiornaLog(); }catch(e){}
-  setTimeout(()=>{ try{ caricaConfig(); caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); aggiornaLogNoGps(); }catch(e){} }, 500);
+  setTimeout(()=>{ try{ caricaPresenzeManuali(); caricaConfig(); caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); aggiornaLogNoGps(); }catch(e){} }, 500);
   try{ attivaGPS(); }catch(e){}
   setTimeout(()=>{ try{ attivaGPS(); avviaWatchGPS(); }catch(e){} }, 1000);
 });
