@@ -138,12 +138,9 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
 <button class="btn" style="background:#b45309; color:white" onclick="timbraNoGps('USCITA')">📵 USCITA senza GPS</button>
 </div>
 </div>
-<div style="margin-top:8px">
-<button onclick="apriGestioneGiustificativi()" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; width:100%; font-size:13px">📝 Inserisci Assenza / Giustificativo</button>
-</div>
-<div style="text-align:center; margin-top:8px">
-<button class="btn" style="background:#7c3aed; color:white; width:auto; padding:8px 14px" onclick="generaSchedeConQR()">📇 Badge con QR (QR VERI)</button>
-<button class="btn" style="background:#0ea5e9; color:white; width:auto; padding:8px 14px; margin-left:4px" onclick="generaResocontoDareAvere()">📊 Resoconto ore</button>
+<div style="margin-top:8px; display:grid; grid-template-columns:1fr 1fr; gap:8px">
+<button onclick="apriGestioneGiustificativi()" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; font-size:13px; cursor:pointer">📝 Inserisci Assenza / Giustificativo</button>
+<button onclick="generaResocontoDareAvere()" style="background:#0ea5e9; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; font-size:13px; cursor:pointer">📊 Resoconto ore</button>
 </div>
 </div>
 
