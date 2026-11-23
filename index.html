@@ -68,7 +68,8 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
 
 <div class="green-banner">
   <span id="testoCondivisoBanner">🌱 Condiviso attivo - 0 timbrature</span>
-  <button onclick="richiediBackup()" style="background:#0ea5e9; color:white; border:0; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:800; cursor:pointer; margin-left:auto; margin-right:6px">💾 Copia di sicurezza (PIN)</button>
+  <button onclick="richiediRipristino()" style="background:#7c3aed; color:white; border:0; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:800; cursor:pointer; margin-left:auto; margin-right:6px">♻️ Ripristina copia (PIN)</button>
+  <button onclick="richiediBackup()" style="background:#0ea5e9; color:white; border:0; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:800; cursor:pointer; margin-right:6px">💾 Copia di sicurezza (PIN)</button>
   <button onclick="richiediAzzeraDatabase()" style="background:#dc2626; color:white; border:0; border-radius:8px; padding:6px 12px; font-size:12px; font-weight:800; cursor:pointer">🗑️ Azzera Database (PIN)</button>
 </div>
 
@@ -965,25 +966,99 @@ function eliminaPresenzaManualeDaResoconto(k){
 }
 
 // ----- Azzera tutto / data di partenza -----
-// ===== Copia di sicurezza =====
+// ===== Copia di sicurezza e ripristino =====
+const NODI_BACKUP=['anagrafica','timbrature','timbrature_nogps','giustificativi','presenze_manuali','bacheca','bacheca_letture','config'];
+function contaNodo(x){ return x ? Object.keys(x).length : 0; }
+function riepilogoDati(d){
+  return contaNodo(d.anagrafica)+' dipendenti, '+contaNodo(d.timbrature)+' timbrature, '+contaNodo(d.timbrature_nogps)+' senza GPS, '+contaNodo(d.giustificativi)+' assenze, '+contaNodo(d.presenze_manuali)+' presenze manuali, '+contaNodo(d.bacheca)+' avvisi';
+}
+async function raccogliDatiBackup(){
+  var dati={_info:{app:'IO TIMBRO - IC Frosinone 2', creato:new Date().toISOString(), nota:'Gli allegati della bacheca non sono inclusi.'}};
+  for(var i=0;i<NODI_BACKUP.length;i++){
+    var r=await fetchWithFallback('/'+NODI_BACKUP[i]+'.json'); dati[NODI_BACKUP[i]]=await r.json();
+  }
+  return dati;
+}
+function scaricaFileBackup(prefisso, dati){
+  var d=new Date(), pad=function(n){ return ('0'+n).slice(-2); };
+  var nome=prefisso+'_'+d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes())+'.json';
+  var blob=new Blob([JSON.stringify(dati,null,1)],{type:'application/json'});
+  var url=URL.createObjectURL(blob);
+  var l=document.createElement('a'); l.href=url; l.download=nome; l.style.display='none'; document.body.appendChild(l); l.click(); document.body.removeChild(l);
+  return nome;
+}
 function richiediBackup(){
   apriModalPinSicuro("Copia di sicurezza", "Inserisci il PIN per scaricare la copia di sicurezza di tutti i dati:", function(){ eseguiBackup(); });
 }
 async function eseguiBackup(){
-  var nodi=['anagrafica','timbrature','timbrature_nogps','giustificativi','presenze_manuali','bacheca','bacheca_letture','config'];
-  var dati={_info:{app:'IO TIMBRO - IC Frosinone 2', creato:new Date().toISOString(), nota:'Gli allegati della bacheca non sono inclusi.'}};
   try{
-    for(var i=0;i<nodi.length;i++){
-      var r=await fetchWithFallback('/'+nodi[i]+'.json'); dati[nodi[i]]=await r.json();
-    }
-    var d=new Date(), pad=function(n){ return ('0'+n).slice(-2); };
-    var nome='copia_sicurezza_timbrature_'+d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+'_'+pad(d.getHours())+pad(d.getMinutes())+'.json';
-    var blob=new Blob([JSON.stringify(dati,null,1)],{type:'application/json'});
-    var url=URL.createObjectURL(blob);
-    var l=document.createElement('a'); l.href=url; l.download=nome; l.style.display='none'; document.body.appendChild(l); l.click(); document.body.removeChild(l);
-    var conta=function(x){ return x ? Object.keys(x).length : 0; };
-    alert('✅ Copia di sicurezza scaricata ('+nome+').\n\nContiene: '+conta(dati.anagrafica)+' dipendenti, '+conta(dati.timbrature)+' timbrature, '+conta(dati.giustificativi)+' assenze, '+conta(dati.presenze_manuali)+' presenze manuali, '+conta(dati.bacheca)+' avvisi.\n\nConservala in un posto sicuro (es. Drive o mail).');
+    var dati=await raccogliDatiBackup();
+    var nome=scaricaFileBackup('copia_sicurezza_timbrature', dati);
+    alert('✅ Copia di sicurezza scaricata ('+nome+').\n\nContiene: '+riepilogoDati(dati)+'.\n\nConservala in un posto sicuro (es. Drive o mail).');
   }catch(e){ alert('Errore: copia non riuscita. Controlla internet e riprova.'); }
+}
+
+let _datiRipristino=null;
+function richiediRipristino(){
+  apriModalPinSicuro("Ripristina copia di sicurezza", "Inserisci il PIN per ripristinare i dati da una copia di sicurezza:", function(){ apriRipristino(); });
+}
+function apriRipristino(){
+  _datiRipristino=null;
+  var modal=document.getElementById('modalRipristino');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalRipristino';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10008; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:16px; width:100%; max-width:520px; max-height:92vh; overflow:auto; border:2.5px solid #7c3aed">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center"><h3 style="margin:0; color:#7c3aed; font-size:16px">♻️ Ripristina copia di sicurezza</h3>'
+    +'<button onclick="chiudiRipristino()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<div style="font-size:12px; color:#b91c1c; background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:8px; margin-top:10px">⚠️ Il ripristino <b>sostituisce</b> i dati attuali con quelli del file. Prima di procedere l\'app scarica da sola una copia dei dati di adesso, per sicurezza.</div>'
+    +'<label style="font-size:12px; font-weight:700; display:block; margin-top:12px">1. Scegli il file della copia di sicurezza (.json):</label>'
+    +'<input type="file" accept=".json,application/json" onchange="leggiFileRipristino(this)" style="width:100%; font-size:13px; margin-top:4px">'
+    +'<div id="ripInfo" style="font-size:13px; margin-top:10px; color:#334155"></div>'
+    +'<button id="ripBtn" onclick="eseguiRipristino()" disabled style="margin-top:12px; width:100%; background:#7c3aed; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer; opacity:0.5">♻️ Ripristina ora</button></div>';
+}
+function chiudiRipristino(){ var m=document.getElementById('modalRipristino'); if(m) m.style.display='none'; _datiRipristino=null; }
+function leggiFileRipristino(inp){
+  var info=document.getElementById('ripInfo'), btn=document.getElementById('ripBtn');
+  _datiRipristino=null; btn.disabled=true; btn.style.opacity=0.5;
+  var f=inp.files && inp.files[0]; if(!f){ info.textContent=''; return; }
+  var rd=new FileReader();
+  rd.onload=function(){
+    try{
+      var d=JSON.parse(rd.result);
+      if(!d || !d._info || String(d._info.app||'').indexOf('IO TIMBRO')!==0){ info.innerHTML='<span style="color:#dc2626">⛔ Questo non è un file di copia di sicurezza di IO TIMBRO.</span>'; return; }
+      _datiRipristino=d;
+      var data=d._info.creato ? new Date(d._info.creato).toLocaleString('it-IT') : '?';
+      info.innerHTML='✅ File valido, creato il <b>'+esc(data)+'</b><br>Contiene: '+esc(riepilogoDati(d))+'.';
+      btn.disabled=false; btn.style.opacity=1;
+    }catch(e){ info.innerHTML='<span style="color:#dc2626">⛔ File non leggibile.</span>'; }
+  };
+  rd.onerror=function(){ info.innerHTML='<span style="color:#dc2626">⛔ File non leggibile.</span>'; };
+  rd.readAsText(f);
+}
+async function eseguiRipristino(){
+  var d=_datiRipristino; if(!d) return;
+  if(!confirm('Ripristinare questa copia?\n\nContiene: '+riepilogoDati(d)+'.\n\nI dati attuali verranno SOSTITUITI.')) return;
+  if(!confirm('ULTIMA CONFERMA: vuoi davvero sostituire i dati di tutti i tablet con quelli della copia?')) return;
+  var btn=document.getElementById('ripBtn'); btn.disabled=true; btn.textContent='⏳ Ripristino in corso...';
+  try{
+    try{ var att=await raccogliDatiBackup(); scaricaFileBackup('prima_del_ripristino', att); }
+    catch(e){ if(!confirm('Non riesco a salvare la copia dei dati attuali. Procedere comunque?')){ btn.disabled=false; btn.textContent='♻️ Ripristina ora'; return; } }
+    for(var i=0;i<NODI_BACKUP.length;i++){
+      var n=NODI_BACKUP[i]; if(!(n in d)) continue;
+      var v=d[n];
+      if(v===null || v===undefined){ await fetchWithFallback('/'+n+'.json',{method:'DELETE'}); }
+      else { await fetchWithFallback('/'+n+'.json',{method:'PUT', body:JSON.stringify(v), headers:JSON_H}); }
+    }
+    alert('✅ Ripristino completato. L\'app si ricarica.');
+    location.reload();
+  }catch(e){
+    btn.disabled=false; btn.textContent='♻️ Ripristina ora';
+    alert('Errore durante il ripristino: '+e.message+'\nControlla internet e riprova (alcuni dati potrebbero essere già stati ripristinati).');
+  }
 }
 
 function richiediAzzeraDatabase(){
