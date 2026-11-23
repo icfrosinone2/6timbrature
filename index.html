@@ -351,6 +351,13 @@ function indiceSettimana(a, d){
   var n=Math.round((lunediDi(d)-rif)/(7*86400000));
   return ((n%N)+N)%N;
 }
+// Il dipendente e' in servizio in quella data? (se non ha periodi indicati: sempre)
+function inServizio(a, d){
+  var per=(a && a.periodiServizio) ? a.periodiServizio.filter(function(x){ return x && x.dal; }) : [];
+  if(!per.length) return true;
+  var iso=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+  return per.some(function(x){ return iso>=x.dal && (!x.al || iso<=x.al); });
+}
 function schedaSettimana(a, idx){
   if(idx===0) return a.orariSettimana;
   if(a.orariSettimane && a.orariSettimane[idx]) return a.orariSettimane[idx];
@@ -999,6 +1006,127 @@ function stampaStraordinari(){
   document.body.classList.add('stampa-ass');
 }
 
+// ===== FOGLIO PRESENZE DEL GIORNO (inserimento manuale per data) =====
+function richiediFoglioGiorno(){
+  apriModalPinSicuro("Presenze del giorno", "Inserisci il PIN per inserire gli orari di un giorno:", function(){ apriFoglioGiorno(); });
+}
+function apriFoglioGiorno(){
+  var modal=document.getElementById('modalFoglio');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalFoglio';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10005; display:flex; align-items:center; justify-content:center; padding:8px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var o=new Date(), pad=function(n){ return ('0'+n).slice(-2); };
+  var oggi=o.getFullYear()+'-'+pad(o.getMonth()+1)+'-'+pad(o.getDate());
+  var plessiU=[]; anagrafiche.forEach(function(a){ if(a.plesso && plessiU.indexOf(a.plesso)<0) plessiU.push(a.plesso); }); plessiU.sort();
+  var optP='<option value="TUTTI">Tutti i plessi</option>'+plessiU.map(function(x){ return '<option value="'+esc(x)+'">'+esc(x)+'</option>'; }).join('');
+  var inp='width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:12px; width:100%; max-width:620px; max-height:96vh; display:flex; flex-direction:column; border:2.5px solid #0d9488">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center"><h3 style="margin:0; color:#0f766e; font-size:16px">🗓️ Presenze del giorno</h3>'
+    +'<button onclick="chiudiFoglioGiorno()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<div style="font-size:11px; color:#475569; margin:6px 0">Scegli il giorno, spunta chi era presente e controlla gli orari (già compilati con il loro orario di servizio). Sono dati a parte e contano nel Resoconto ore.</div>'
+    +'<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px"><div><label style="font-size:11px; font-weight:700">Giorno:</label><input type="date" id="fgGiorno" value="'+oggi+'" max="'+oggi+'" onchange="renderFoglioGiorno()" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px; font-weight:700">Plesso:</label><select id="fgPlesso" onchange="renderFoglioGiorno()" style="'+inp+'">'+optP+'</select></div></div>'
+    +'<label style="display:flex; gap:8px; align-items:center; font-size:12px; margin-top:6px"><input type="checkbox" id="fgTutti" onchange="renderFoglioGiorno()" style="width:18px; height:18px"> Mostra anche chi quel giorno non è in servizio</label>'
+    +'<div style="display:flex; gap:6px; margin-top:6px"><button onclick="fgSeleziona(true)" style="flex:1; background:#0d9488; color:white; border:0; border-radius:8px; padding:8px; font-weight:800; font-size:12px; cursor:pointer">☑️ Seleziona tutti</button>'
+    +'<button onclick="fgSeleziona(false)" style="flex:1; background:#94a3b8; color:white; border:0; border-radius:8px; padding:8px; font-weight:800; font-size:12px; cursor:pointer">⬜ Deseleziona</button></div>'
+    +'<div id="fgLista" style="flex:1; overflow:auto; margin-top:8px; border:1px solid #e2e8f0; border-radius:8px; padding:4px; min-height:140px"></div>'
+    +'<button id="fgBtn" onclick="salvaFoglioGiorno()" style="margin-top:8px; background:#0d9488; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer">💾 Salva presenze del giorno</button></div>';
+  renderFoglioGiorno();
+  caricaPresenzeManuali().then(function(){ renderFoglioGiorno(); });
+}
+function chiudiFoglioGiorno(){ var m=document.getElementById('modalFoglio'); if(m) m.style.display='none'; }
+
+function partiTesto(parti){ return parti.map(function(p){ return p.e+'-'+p.u; }).join(', '); }
+function parsePartiTesto(v){
+  var parti=[], prec=-1, ok=true;
+  String(v||'').split(',').forEach(function(pz){
+    var r=pz.trim().match(/^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/);
+    if(!r){ ok=false; return; }
+    var e=+r[1]*60+(+r[2]), u=+r[3]*60+(+r[4]);
+    if(u<=e || e<prec || +r[1]>23 || +r[3]>23 || +r[2]>59 || +r[4]>59){ ok=false; return; }
+    prec=u; parti.push({e:('0'+r[1]).slice(-2)+':'+r[2], u:('0'+r[3]).slice(-2)+':'+r[4]});
+  });
+  return (ok && parti.length) ? parti : null;
+}
+
+function renderFoglioGiorno(){
+  var div=document.getElementById('fgLista'); if(!div) return;
+  var giorno=document.getElementById('fgGiorno').value; if(!giorno){ div.innerHTML=''; return; }
+  var plesso=document.getElementById('fgPlesso').value, tutti=document.getElementById('fgTutti').checked;
+  var p=giorno.split('-'), d=new Date(+p[0],+p[1]-1,+p[2]), gIt=giornoIt(giorno);
+  var lista=[], html='';
+  anagrafiche.slice().sort(function(a,b){ return a.nome<b.nome?-1:1; }).forEach(function(a){
+    if(plesso!=='TUTTI' && a.plesso!==plesso) return;
+    var slots=slotsPerData(a,d);
+    var servizio = slots.length>0 && inServizio(a,d);
+    if(!servizio && !tutti) return;
+    var i=lista.length; var voce={nome:a.nome, slots:slots};
+    lista.push(voce);
+    var tim=timbratureSalvate.filter(function(t){ return t.nome===a.nome && normData(t.data)===gIt; });
+    var ass=giustificativiSalvati.find(function(g){ return g.nome===a.nome && normData(g.data)===gIt; });
+    var man=presenzeManuali.find(function(m){ return m.nome===a.nome && m.giorno===giorno; });
+    var testa='<div style="font-size:13px"><b>'+esc(a.nome)+'</b> <span style="color:#94a3b8; font-size:10px">'+esc(a.plesso||'')+'</span>'+(servizio?'':' <span style="color:#b45309; font-size:10px">(non in servizio)</span>')+'</div>';
+    if(tim.length){
+      voce.blocco=true;
+      var ents=tim.filter(function(t){ return t.tipo==='ENTRATA'; }).map(function(t){ return t.ora.slice(0,5); }).sort(), usc=tim.filter(function(t){ return t.tipo==='USCITA'; }).map(function(t){ return t.ora.slice(0,5); }).sort();
+      html+='<div style="padding:7px; border-bottom:1px solid #f1f5f9; background:#f8fafc">'+testa+'<div style="font-size:11px; color:#16a34a">✅ Ha già timbrato'+(ents.length?' (entrata '+ents[0]+(usc.length?', uscita '+usc[usc.length-1]:'')+')':'')+'</div></div>';
+      return;
+    }
+    if(ass){
+      voce.blocco=true;
+      html+='<div style="padding:7px; border-bottom:1px solid #f1f5f9; background:#f8fafc">'+testa+'<div style="font-size:11px; color:#7e22ce">📝 '+esc(ass.tipo)+(ass.ore?' ('+esc(ass.ore)+')':'')+'</div></div>';
+      return;
+    }
+    var parti = man ? ((man.parti && man.parti.length>1) ? man.parti : [{e:man.entrata,u:man.uscita}])
+              : (slots.length ? slots.map(function(sl){ return {e:String(sl.entrata).slice(0,5), u:String(sl.uscita).slice(0,5)}; }) : [{e:'',u:''}]);
+    voce.esistente=!!man; voce.multi=parti.length>1;
+    var campi = voce.multi
+      ? '<input type="text" id="fgT_'+i+'" value="'+esc(partiTesto(parti))+'" style="flex:1; padding:7px; border:1.5px solid #cbd5e1; border-radius:6px; font-size:13px; min-width:0">'
+      : '<input type="time" id="fgE_'+i+'" value="'+esc(parti[0].e)+'" style="flex:1; padding:7px; border:1.5px solid #cbd5e1; border-radius:6px; min-width:0"><span>→</span><input type="time" id="fgU_'+i+'" value="'+esc(parti[0].u)+'" style="flex:1; padding:7px; border:1.5px solid #cbd5e1; border-radius:6px; min-width:0">';
+    html+='<div style="padding:7px; border-bottom:1px solid #f1f5f9"><label style="display:flex; align-items:center; gap:8px; cursor:pointer"><input type="checkbox" class="fgChk" id="fgC_'+i+'" '+(man?'checked':'')+' style="width:20px; height:20px; flex:none">'+testa+'</label>'
+      +(man?'<div style="font-size:10px; color:#0d9488; margin:2px 0 0 28px">già inserita a mano (se togli la spunta viene eliminata)</div>':'')
+      +'<div style="display:flex; gap:6px; align-items:center; margin:5px 0 0 28px">'+campi+'</div></div>';
+  });
+  window._fgLista=lista; window._fgGiorno=giorno;
+  div.innerHTML=html || '<div style="color:#94a3b8; text-align:center; padding:16px; font-size:12px">Nessun dipendente in servizio in questo giorno</div>';
+}
+function fgSeleziona(v){ document.querySelectorAll('.fgChk').forEach(function(c){ c.checked=v; }); }
+
+async function salvaFoglioGiorno(){
+  var lista=window._fgLista||[], giorno=window._fgGiorno; if(!giorno) return;
+  var scrivi={}, cancella=[], n=0, errori=[];
+  var g=giorno.split('-');
+  lista.forEach(function(v,i){
+    if(v.blocco) return;
+    var chk=document.getElementById('fgC_'+i); if(!chk) return;
+    var key=chiaveMan(v.nome,giorno);
+    if(!chk.checked){ if(v.esistente) cancella.push(key); return; }
+    var parti=null;
+    if(v.multi){ parti=parsePartiTesto(document.getElementById('fgT_'+i).value); }
+    else { var e=document.getElementById('fgE_'+i).value, u=document.getElementById('fgU_'+i).value; if(e && u && timeToMinutes(u)>timeToMinutes(e)) parti=[{e:e.slice(0,5), u:u.slice(0,5)}]; }
+    if(!parti){ errori.push(v.nome); return; }
+    var hm=parti[0].e.split(':');
+    var rec={nome:v.nome, giorno:giorno, entrata:parti[0].e, uscita:parti[parti.length-1].u, timestamp:new Date(+g[0],+g[1]-1,+g[2],+hm[0],+hm[1]).getTime(), creato:Date.now()};
+    if(parti.length>1) rec.parti=parti;
+    scrivi[key]=rec; n++;
+  });
+  if(errori.length){ alert('Orario non valido per: '+errori.join(', ')+'.\nControlla entrata e uscita (l\'uscita deve essere dopo l\'entrata).'); return; }
+  if(!n && !cancella.length){ alert('Nessuna presenza selezionata.'); return; }
+  if(!confirm('Giorno '+giornoIt(giorno)+': salvare '+n+' presenze'+(cancella.length?' ed eliminarne '+cancella.length:'')+'?')) return;
+  var btn=document.getElementById('fgBtn'); btn.disabled=true; btn.textContent='⏳ Salvo...';
+  try{
+    var patch=Object.assign({}, scrivi); cancella.forEach(function(k){ patch[k]=null; });
+    await fetchWithFallback("/presenze_manuali.json",{method:"PATCH", body:JSON.stringify(patch), headers:JSON_H});
+    await caricaPresenzeManuali(); renderFoglioGiorno();
+    try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
+    alert('✅ Presenze del '+giornoIt(giorno)+' salvate ('+n+').');
+  }catch(e){ alert('Errore: presenze non salvate. Controlla internet e riprova.'); }
+  btn.disabled=false; btn.textContent='💾 Salva presenze del giorno';
+}
+
 function richiediPresenzeManuali(){
   apriModalPinSicuro("Presenze manuali", "Inserisci il PIN per aprire l'inserimento manuale delle presenze:", function(){ apriPresenzeManuali(); });
 }
@@ -1067,6 +1195,7 @@ async function inserisciPresenzeManuali(){
     nomi.forEach(function(nome){
       var an=anagrafiche.find(function(x){ return x.nome===nome; }); if(!an) return;
       var slots=slotsPerData(an, curr);
+      if(!inServizio(an, curr)) return;
       if(!slots.length) return;
       var e,u;
       if(modo==='scelto'){ e=ent; u=usc; } else { e=slots[0].entrata; u=slots[slots.length-1].uscita; }
@@ -2045,6 +2174,7 @@ function generaResocontoDareAvere(){
     htmlModal+='</div>';
     htmlModal+='<button onclick="apriTimbraturaDimenticata()" style="width:100%; margin-top:8px; background:#f59e0b; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">➕ Aggiungi timbratura dimenticata</button>';
     htmlModal+='<button onclick="richiediStraordinari()" style="width:100%; margin-top:8px; background:#16a34a; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">💶 Straordinario a pagamento (PIN)</button>';
+    htmlModal+='<button onclick="richiediFoglioGiorno()" style="width:100%; margin-top:8px; background:#0d9488; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">🗓️ Presenze del giorno (inserisci per data)</button>';
     htmlModal+='<button onclick="richiediPresenzeManuali()" style="width:100%; margin-top:8px; background:#0d9488; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">✍️ Inserisci presenze manuali (PIN)</button>';
     htmlModal+='<button onclick="apriCancellaTimbrature()" style="width:100%; margin-top:8px; background:#dc2626; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">🗑️ Cancella timbrature (tutte o a scelta)</button>';
 
@@ -2158,6 +2288,10 @@ function generaResocontoInterno(){
         
         var giustificato = giustificativiSalvati.find(g => g.nome === nome && normData(g.data) === normData(dataStrFormatted));
         
+        if(!inServizio(dipObj, curr) && timbGiorn.length === 0 && !giustificato){
+          curr.setDate(curr.getDate() + 1);
+          continue;
+        }
         var minLavorati = 0;
         var notaCalc = '';
         var statoStr = '';
