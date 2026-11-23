@@ -857,6 +857,148 @@ async function aggiungiTimbraturaDimenticata(){
   alert('✅ Timbratura aggiunta per '+nome+'.'+avviso);
 }
 
+// ===== STRAORDINARIO A PAGAMENTO (registro separato: /straordinari) =====
+let straordinari = JSON.parse(localStorage.getItem('straord_v1')||'[]');
+function salvaStrLocali(){ try{ localStorage.setItem('straord_v1', JSON.stringify(straordinari)); }catch(e){} }
+function idStr(x){ return x._k || ('L'+x.timestamp); }
+function straordinarioMin(nome, giornoTxt){
+  var g=normData(giornoTxt), tot=0;
+  straordinari.forEach(function(x){ if(x.nome===nome && normData(x.data)===g) tot+=(x.min||0); });
+  return tot;
+}
+async function caricaStraordinari(){
+  try{
+    let r=await fetchWithFallback("/straordinari.json"); let val=await r.json();
+    let cloud=[]; if(val){ Object.keys(val).forEach(function(k){ var v=val[k]; if(v && v.nome && v.data){ cloud.push(Object.assign({},v,{_k:k})); } }); }
+    var chiave=function(x){ return x.nome+'|'+normData(x.data)+'|'+x.min+'|'+x.timestamp; };
+    var set=new Set(cloud.map(chiave));
+    var pend=straordinari.filter(function(x){ return !x._k && !x._del && !set.has(chiave(x)); });
+    straordinari=[...cloud,...pend]; salvaStrLocali();
+    if(document.getElementById('strLista')) renderStraordinari();
+    pend.forEach(function(x){ if(!x._posting) postaStraord(x); });
+  }catch(e){}
+}
+async function postaStraord(x){
+  if(x._posting) return; x._posting=true;
+  try{
+    var o=Object.assign({},x); delete o._k; delete o._posting; delete o._del;
+    let r=await fetchWithFallback("/straordinari.json",{method:"POST", body:JSON.stringify(o), headers:JSON_H});
+    let j=await r.json(); if(j && j.name){ x._k=j.name; salvaStrLocali(); }
+  }catch(e){}
+  x._posting=false;
+}
+function richiediStraordinari(){
+  apriModalPinSicuro("Straordinario a pagamento", "Inserisci il PIN per gestire lo straordinario a pagamento:", function(){ apriStraordinari(); });
+}
+function apriStraordinari(){
+  var modal=document.getElementById('modalStraord');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalStraord';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10005; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var nomi=anagrafiche.map(function(a){ return a.nome; }).sort();
+  var optS=nomi.map(function(n){ return '<option value="'+esc(n)+'">'+esc(n)+'</option>'; }).join('');
+  var optT='<option value="TUTTI">TUTTI i dipendenti</option>'+optS;
+  var o=new Date(), pad=function(n){ return ('0'+n).slice(-2); };
+  var oggi=o.getFullYear()+'-'+pad(o.getMonth()+1)+'-'+pad(o.getDate()), primo=o.getFullYear()+'-'+pad(o.getMonth()+1)+'-01';
+  var inp='width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:14px; width:100%; max-width:560px; max-height:94vh; overflow:auto; border:2.5px solid #16a34a">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center"><h3 style="margin:0; color:#15803d; font-size:16px">💶 Straordinario a pagamento</h3>'
+    +'<button onclick="chiudiStraordinari()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<div style="font-size:11px; color:#475569; margin:8px 0">Ore di straordinario che verranno <b>pagate</b>. Sono separate dalle ore eccedenti da recuperare: nel Resoconto ore vengono tolte dal saldo del giorno.</div>'
+    +'<div style="background:#f0fdf4; border:1px solid #86efac; border-radius:10px; padding:10px">'
+    +'<label style="font-size:12px; font-weight:700">Dipendente:</label><select id="strDip" style="'+inp+'">'+optS+'</select>'
+    +'<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px"><div><label style="font-size:12px; font-weight:700">Giorno:</label><input type="date" id="strData" value="'+oggi+'" style="'+inp+'"></div>'
+    +'<div><label style="font-size:12px; font-weight:700">Ore (es. 1:30):</label><input type="text" id="strOre" placeholder="1:30" style="'+inp+'"></div></div>'
+    +'<label style="font-size:12px; font-weight:700; display:block; margin-top:8px">Nota (facoltativa):</label><input type="text" id="strNota" placeholder="es. riunione, progetto..." style="'+inp+'">'
+    +'<button onclick="registraStraordinario()" style="margin-top:10px; width:100%; background:#16a34a; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer">💶 Registra straordinario</button></div>'
+    +'<div style="margin-top:14px; font-weight:800; font-size:13px">Elenco e totali</div>'
+    +'<select id="strFiltro" onchange="renderStraordinari()" style="'+inp+'; margin-top:6px">'+optT+'</select>'
+    +'<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:6px"><div><label style="font-size:11px; font-weight:700">Dal:</label><input type="date" id="strDal" value="'+primo+'" onchange="renderStraordinari()" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px; font-weight:700">Al:</label><input type="date" id="strAl" value="'+oggi+'" onchange="renderStraordinari()" style="'+inp+'"></div></div>'
+    +'<div id="strLista" style="margin-top:8px; max-height:260px; overflow:auto"></div>'
+    +'<button onclick="stampaStraordinari()" style="margin-top:8px; width:100%; background:#0ea5e9; color:white; border:0; border-radius:10px; padding:10px; font-weight:800; cursor:pointer">🖨️ Stampa riepilogo</button></div>';
+  renderStraordinari();
+  caricaStraordinari();
+}
+function chiudiStraordinari(){ var m=document.getElementById('modalStraord'); if(m) m.style.display='none'; }
+
+async function registraStraordinario(){
+  var nome=document.getElementById('strDip').value, giorno=document.getElementById('strData').value;
+  var ore=hmToMin(document.getElementById('strOre').value), nota=(document.getElementById('strNota').value||'').trim();
+  if(!nome||!giorno){ alert('Scegli dipendente e giorno.'); return; }
+  if(ore===null || ore<=0 || ore>12*60){ alert('Ore non valide. Scrivi per esempio 1:30'); return; }
+  var x={nome:nome, data:giornoIt(giorno), min:ore, ore:minToHM(ore), nota:nota, timestamp:Date.now()};
+  straordinari.push(x); salvaStrLocali(); renderStraordinari();
+  document.getElementById('strOre').value=''; document.getElementById('strNota').value='';
+  await postaStraord(x);
+  try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
+  alert('✅ Straordinario registrato: '+nome+' - '+x.data+' - '+x.ore);
+}
+function filtraStraordinari(){
+  var f=document.getElementById('strFiltro').value, dal=document.getElementById('strDal').value, al=document.getElementById('strAl').value;
+  var dMs=dal ? new Date(dal+'T00:00:00').getTime() : 0, aMs=al ? new Date(al+'T23:59:59').getTime() : Infinity;
+  return straordinari.filter(function(x){
+    var ms=parseDataIt(normData(x.data)); return ms!==null && ms>=dMs && ms<=aMs && (f==='TUTTI' || x.nome===f);
+  }).sort(function(a,b){ return parseDataIt(normData(b.data))-parseDataIt(normData(a.data)); });
+}
+function totaliStraordinari(lista){
+  var t={}; lista.forEach(function(x){ t[x.nome]=(t[x.nome]||0)+(x.min||0); }); return t;
+}
+function renderStraordinari(){
+  var div=document.getElementById('strLista'); if(!div) return;
+  var lista=filtraStraordinari(), tot=totaliStraordinari(lista), nomi=Object.keys(tot).sort();
+  var html='';
+  if(nomi.length){
+    html+='<div style="background:#ecfdf5; border:1px solid #86efac; border-radius:8px; padding:8px; margin-bottom:6px; font-size:12px"><b>Totali del periodo</b>';
+    nomi.forEach(function(n){ html+='<div style="display:flex; justify-content:space-between"><span>'+esc(n)+'</span><b>'+minToHM(tot[n])+' ore</b></div>'; });
+    html+='</div>';
+  }
+  lista.forEach(function(x){
+    html+='<div style="display:flex; justify-content:space-between; align-items:center; gap:6px; background:white; border:1px solid #cbd5e1; padding:6px; border-radius:6px; margin-bottom:4px; font-size:11px"><div><b>'+esc(x.nome)+'</b> - '+esc(normData(x.data))+' - <b style="color:#15803d">'+esc(x.ore||minToHM(x.min))+'</b>'+(x.nota?' <span style="color:#64748b">('+esc(x.nota)+')</span>':'')+'</div>'
+      +'<button onclick="eliminaStraordinario(\''+idStr(x)+'\')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 8px; font-size:10px; cursor:pointer; flex:none">Elimina</button></div>';
+  });
+  div.innerHTML=html || '<div style="color:#94a3b8; text-align:center; padding:10px; font-size:12px">Nessuno straordinario nel periodo</div>';
+}
+async function eliminaStraordinario(id){
+  var x=straordinari.find(function(y){ return idStr(y)===id; }); if(!x) return;
+  if(!confirm('Eliminare lo straordinario di '+x.nome+' del '+normData(x.data)+' ('+(x.ore||minToHM(x.min))+')?')) return;
+  try{
+    x._del=true;
+    if(x._k){ await fetchWithFallback("/straordinari/"+x._k+".json",{method:"DELETE"}); }
+    straordinari=straordinari.filter(function(y){ return y!==x; }); salvaStrLocali(); renderStraordinari();
+    try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
+  }catch(e){ x._del=false; alert('Errore: non riesco a eliminare dal cloud. Riprova.'); }
+}
+function stampaStraordinari(){
+  var lista=filtraStraordinari(), tot=totaliStraordinari(lista), nomi=Object.keys(tot).sort();
+  var dal=document.getElementById('strDal').value, al=document.getElementById('strAl').value;
+  var th='border:1px solid #94a3b8; padding:5px; background:#e2e8f0; text-align:left', td='border:1px solid #94a3b8; padding:5px';
+  var html='<div class="no-print" style="display:flex; gap:8px; justify-content:flex-end; margin-bottom:12px">'
+    +'<button onclick="window.print()" style="background:#0ea5e9; color:white; border:0; border-radius:8px; padding:10px 16px; font-weight:800; cursor:pointer">🖨️ Stampa</button>'
+    +'<button onclick="chiudiStampaAssenze()" style="background:#64748b; color:white; border:0; border-radius:8px; padding:10px 16px; font-weight:800; cursor:pointer">Chiudi</button></div>';
+  html+='<h2 style="margin:0 0 4px 0; font-size:18px">IC Frosinone 2 - Straordinario a pagamento</h2>';
+  html+='<div style="font-size:12px; margin-bottom:14px">Periodo: dal '+(dal?giornoIt(dal):'-')+' al '+(al?giornoIt(al):'-')+' &nbsp;|&nbsp; Stampato il '+fmtDataIt(Date.now())+'</div>';
+  nomi.forEach(function(n){
+    var righe=lista.filter(function(x){ return x.nome===n; }).sort(function(a,b){ return parseDataIt(normData(a.data))-parseDataIt(normData(b.data)); });
+    html+='<div style="margin-bottom:16px; page-break-inside:avoid"><div style="font-size:14px; font-weight:800">'+esc(n)+'</div>'
+      +'<table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:4px"><tr><th style="'+th+'; width:25%">Data</th><th style="'+th+'; width:20%">Ore</th><th style="'+th+'">Nota</th></tr>';
+    righe.forEach(function(x){ html+='<tr><td style="'+td+'">'+esc(normData(x.data))+'</td><td style="'+td+'">'+esc(x.ore||minToHM(x.min))+'</td><td style="'+td+'">'+esc(x.nota||'')+'</td></tr>'; });
+    html+='</table><div style="font-size:12px; margin-top:4px"><b>Totale ore a pagamento: '+minToHM(tot[n])+'</b></div></div>';
+  });
+  if(!nomi.length) html+='<div style="padding:20px; text-align:center; color:#64748b">Nessuno straordinario nel periodo scelto.</div>';
+  var area=document.getElementById('areaStampaAss');
+  if(!area){
+    area=document.createElement('div'); area.id='areaStampaAss';
+    area.style='position:fixed; top:0; left:0; width:100%; height:100%; background:white; z-index:100000; overflow:auto; padding:16px; box-sizing:border-box; color:#0f172a';
+    document.body.appendChild(area);
+  }
+  area.innerHTML=html; area.style.display='block';
+  document.body.classList.add('stampa-ass');
+}
+
 function richiediPresenzeManuali(){
   apriModalPinSicuro("Presenze manuali", "Inserisci il PIN per aprire l'inserimento manuale delle presenze:", function(){ apriPresenzeManuali(); });
 }
@@ -1020,10 +1162,10 @@ function eliminaPresenzaManualeDaResoconto(k){
 
 // ----- Azzera tutto / data di partenza -----
 // ===== Copia di sicurezza e ripristino =====
-const NODI_BACKUP=['anagrafica','timbrature','timbrature_nogps','giustificativi','presenze_manuali','bacheca','bacheca_letture','config'];
+const NODI_BACKUP=['anagrafica','timbrature','timbrature_nogps','giustificativi','presenze_manuali','straordinari','bacheca','bacheca_letture','config'];
 function contaNodo(x){ return x ? Object.keys(x).length : 0; }
 function riepilogoDati(d){
-  return contaNodo(d.anagrafica)+' dipendenti, '+contaNodo(d.timbrature)+' timbrature, '+contaNodo(d.timbrature_nogps)+' senza GPS, '+contaNodo(d.giustificativi)+' assenze, '+contaNodo(d.presenze_manuali)+' presenze manuali, '+contaNodo(d.bacheca)+' avvisi';
+  return contaNodo(d.anagrafica)+' dipendenti, '+contaNodo(d.timbrature)+' timbrature, '+contaNodo(d.timbrature_nogps)+' senza GPS, '+contaNodo(d.giustificativi)+' assenze, '+contaNodo(d.presenze_manuali)+' presenze manuali, '+contaNodo(d.straordinari)+' straordinari, '+contaNodo(d.bacheca)+' avvisi';
 }
 async function raccogliDatiBackup(){
   var dati={_info:{app:'IO TIMBRO - IC Frosinone 2', creato:new Date().toISOString(), nota:'Gli allegati della bacheca non sono inclusi.'}};
@@ -1902,13 +2044,14 @@ function generaResocontoDareAvere(){
     htmlModal+='<button onclick="esportaResocontoCSV()" style="flex:1; background:#16a34a; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">📥 Esporta in CSV (Excel)</button>';
     htmlModal+='</div>';
     htmlModal+='<button onclick="apriTimbraturaDimenticata()" style="width:100%; margin-top:8px; background:#f59e0b; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">➕ Aggiungi timbratura dimenticata</button>';
+    htmlModal+='<button onclick="richiediStraordinari()" style="width:100%; margin-top:8px; background:#16a34a; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">💶 Straordinario a pagamento (PIN)</button>';
     htmlModal+='<button onclick="richiediPresenzeManuali()" style="width:100%; margin-top:8px; background:#0d9488; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">✍️ Inserisci presenze manuali (PIN)</button>';
     htmlModal+='<button onclick="apriCancellaTimbrature()" style="width:100%; margin-top:8px; background:#dc2626; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">🗑️ Cancella timbrature (tutte o a scelta)</button>';
 
     htmlModal+='<div id="risultatoResoconto" style="margin-top:20px"></div></div>';
     modal.innerHTML=htmlModal;
     window._timbraturePerResoconto = timbratureConteggiate().slice();
-    caricaPresenzeManuali();
+    caricaPresenzeManuali(); caricaStraordinari();
   }catch(e){}
 }
 
@@ -2024,6 +2167,8 @@ function generaResocontoInterno(){
           var calc = calcolaGiornata(timbGiorn, slotsPreVisti, minPrevisti);
           if(calc){ minLavorati = calc.min; if(calc.note.length){ notaCalc = '<div style="font-size:9px; color:#b45309">☕ ' + calc.note.join(' · ') + '</div>'; } }
           var diff = minLavorati - minPrevisti;
+          var strMin = straordinarioMin(nome, dataStrFormatted);
+          if(strMin > 0){ diff -= strMin; notaCalc += '<div style="font-size:9px; color:#15803d">💶 straordinario pagato: ' + minToHM(strMin) + '</div>'; }
           
           if(giustificato && giustificato.tipo === 'Permesso Orario da recuperare'){
             diff = 0;
@@ -2419,14 +2564,14 @@ function confermaPinSicuro(){
   }
 }
 
-setInterval(()=>{ caricaPresenzeManuali(); }, 30000);
+setInterval(()=>{ caricaPresenzeManuali(); caricaStraordinari(); }, 30000);
 setInterval(()=>{ caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); caricaConfig(); }, 3000);
 
 window.addEventListener('load', ()=>{ 
   renderPlessiUI();
   try{ caricaAnagraficaCloud(); }catch(e){}
   try{ aggiornaLog(); }catch(e){}
-  setTimeout(()=>{ try{ caricaPresenzeManuali(); caricaConfig(); caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); aggiornaLogNoGps(); }catch(e){} }, 500);
+  setTimeout(()=>{ try{ caricaPresenzeManuali(); caricaStraordinari(); caricaConfig(); caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); aggiornaLogNoGps(); }catch(e){} }, 500);
   try{ attivaGPS(); }catch(e){}
   setTimeout(()=>{ try{ attivaGPS(); avviaWatchGPS(); }catch(e){} }, 1000);
 });
