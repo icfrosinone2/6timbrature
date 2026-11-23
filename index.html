@@ -1370,10 +1370,9 @@ function apriGestioneGiustificativi(){
   html += '<b style="font-size:12px; color:#1e293b">Inserisci Assenza / Giustificativo</b><br>';
   html += '<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Dipendente:</label>';
   html += '<select id="giustDip" style="'+inp+'">'+optNomi+'</select>';
-  html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px">';
-  html += '<div><label style="font-size:11px; font-weight:700; display:block">Data:</label><input type="date" id="giustData" value="'+oggiStr+'" style="'+inp+'"></div>';
-  html += '<div><label style="font-size:11px; font-weight:700; display:block">Tipo Assenza / Voce:</label><select id="giustTipo" style="'+inp+'">'+optTipi+'</select></div>';
-  html += '</div>';
+  html += '<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Tipo Assenza / Voce:</label><select id="giustTipo" style="'+inp+'">'+optTipi+'</select>';
+  html += '<div style="font-size:11px; font-weight:700; margin-top:8px">Periodi (dal - al):</div><div id="giustPeriodi"></div>';
+  html += '<button type="button" onclick="aggiungiPeriodoGiust()" style="background:#e9d5ff; color:#6b21a8; border:0; border-radius:8px; padding:8px; font-weight:800; width:100%; margin-top:6px; cursor:pointer; font-size:12px">➕ Aggiungi un altro periodo</button>';
   html += '<div style="margin-top:6px"><label style="font-size:11px; font-weight:700; display:block">Ore usate (solo per "Riposo compensativo": es. 2:30. Vuoto = giornata intera)</label><input type="text" id="giustOre" placeholder="es. 2:30" style="'+inp+'"></div>';
   html += '<button onclick="aggiungiGiustificativo()" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; width:100%; margin-top:10px; cursor:pointer">➕ Registra Assenza</button>';
   html += '</div>';
@@ -1392,49 +1391,96 @@ function apriGestioneGiustificativi(){
   html += '<div id="listaGiustificativiUI" style="max-height:180px; overflow:auto; margin-top:6px"></div>';
   html += '</div>';
   modal.innerHTML = html;
+  aggiungiPeriodoGiust(oggiStr);
   renderListaGiustificativi();
+}
+
+let _giustRighe=0;
+function aggiungiPeriodoGiust(val){
+  var cont=document.getElementById('giustPeriodi'); if(!cont) return;
+  var id=++_giustRighe, inp='width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:6px; box-sizing:border-box';
+  var v=(typeof val==='string') ? val : '';
+  var riga=document.createElement('div'); riga.className='giustRiga';
+  riga.style.cssText='display:grid; grid-template-columns:1fr 1fr auto; gap:6px; align-items:end; margin-top:6px';
+  riga.innerHTML='<div><label style="font-size:10px; font-weight:700; display:block">Dal:</label><input type="date" class="giustDal" value="'+v+'" style="'+inp+'"></div>'
+    +'<div><label style="font-size:10px; font-weight:700; display:block">Al:</label><input type="date" class="giustAl" value="'+v+'" style="'+inp+'"></div>'
+    +'<button type="button" onclick="this.parentNode.remove()" style="background:#fecaca; color:#991b1b; border:0; border-radius:6px; padding:7px 9px; font-weight:800; cursor:pointer">✕</button>';
+  cont.appendChild(riga);
 }
 
 function aggiungiGiustificativo(){
   var nome = document.getElementById('giustDip').value;
-  var dataInput = document.getElementById('giustData').value;
   var tipo = document.getElementById('giustTipo').value;
-  if(!dataInput){ alert("Seleziona una data!"); return; }
-  var parti = dataInput.split('-');
-  var dataFormattata = parti[2] + '/' + parti[1] + '/' + parti[0]; // gg/mm/aaaa
-  var g = {nome: nome, data: dataFormattata, tipo: tipo, timestamp: Date.now()};
+  var righe = document.querySelectorAll('#giustPeriodi .giustRiga');
+  var ore = '';
   if(tipo===TIPO_ORE_ECC){
     var oreTxt=(document.getElementById('giustOre').value||'').trim();
-    if(oreTxt){ var mo=hmToMin(oreTxt); if(mo===null || mo<=0){ alert('Ore non valide. Scrivi per esempio 2:30'); return; } g.ore=minToHM(mo); }
+    if(oreTxt){ var mo=hmToMin(oreTxt); if(mo===null || mo<=0){ alert('Ore non valide. Scrivi per esempio 2:30'); return; } ore=minToHM(mo); }
   }
-  giustificativiSalvati.push(g);
-  salvaGiustLocali();
-  renderListaGiustificativi();
-  postaGiust(g);
-  alert("✅ Assenza registrata con successo!");
+  var an = anagrafiche.find(function(x){ return x.nome===nome; });
+  var giorni = [], visti = {}, descr = [];
+  for(var r=0; r<righe.length; r++){
+    var dal = righe[r].querySelector('.giustDal').value, al = righe[r].querySelector('.giustAl').value || dal;
+    if(!dal) continue;
+    if(al < dal){ alert('In un periodo la data "Al" è prima della data "Dal".'); return; }
+    var a1=dal.split('-'), a2=al.split('-');
+    var cur=new Date(+a1[0],+a1[1]-1,+a1[2]), fine=new Date(+a2[0],+a2[1]-1,+a2[2]);
+    descr.push(giornoIt(dal)+(al!==dal?' - '+giornoIt(al):''));
+    while(cur<=fine){
+      var gi = ('0'+cur.getDate()).slice(-2)+'/'+('0'+(cur.getMonth()+1)).slice(-2)+'/'+cur.getFullYear();
+      if(!visti[gi] && (!an || slotsPerData(an,cur).length)){ visti[gi]=true; giorni.push(gi); }
+      cur.setDate(cur.getDate()+1);
+    }
+  }
+  if(!descr.length){ alert('Scegli almeno un periodo (data "Dal").'); return; }
+  if(!giorni.length){ alert('Nessun giorno di servizio nei periodi scelti (controlla l\'orario del dipendente).'); return; }
+  var nuovi=[], saltati=0, base=Date.now();
+  giorni.forEach(function(gi){
+    var esiste = giustificativiSalvati.some(function(x){ return x.nome===nome && normData(x.data)===gi; });
+    if(esiste){ saltati++; return; }
+    var g={nome:nome, data:gi, tipo:tipo, timestamp:base+nuovi.length}; if(ore) g.ore=ore;
+    nuovi.push(g);
+  });
+  if(!nuovi.length){ alert('Tutti i giorni scelti hanno già un\'assenza registrata per '+nome+'.'); return; }
+  if(!confirm('Registrare '+nuovi.length+' giorni di "'+tipo+'" per '+nome+'?\n\nPeriodi: '+descr.join(' ; ')+'\n(contati solo i giorni di servizio'+(saltati?'; '+saltati+' giorni saltati perché hanno già un\'assenza':'')+')')) return;
+  nuovi.forEach(function(g){ giustificativiSalvati.push(g); });
+  salvaGiustLocali(); renderListaGiustificativi();
+  nuovi.forEach(function(g){ postaGiust(g); });
+  alert('✅ Registrati '+nuovi.length+' giorni di assenza.');
 }
 
 function renderListaGiustificativi(){
   var container = document.getElementById('listaGiustificativiUI');
   if(!container) return;
-  var ordinati = giustificativiSalvati.slice().sort(function(a,b){ return (b.timestamp||0)-(a.timestamp||0); });
-  var html = '';
-  ordinati.forEach(function(g){
-    html += '<div style="display:flex; justify-content:space-between; align-items:center; background:white; border:1px solid #cbd5e1; padding:6px; border-radius:6px; margin-bottom:4px; font-size:11px">';
-    html += '<div><b>'+esc(g.nome)+'</b> - <span style="color:#0284c7">'+esc(g.data)+'</span>: <span style="background:#f3e8ff; color:#7e22ce; padding:2px 6px; border-radius:4px; font-weight:700">'+esc(g.tipo)+(g.ore?' ('+esc(g.ore)+')':'')+'</span></div>';
-    html += '<button onclick="eliminaGiustificativo(\''+idGiust(g)+'\')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 8px; font-size:10px; cursor:pointer">Elimina</button>';
+  var voci = giustificativiSalvati.map(function(g){ return {g:g, ms:parseDataIt(normData(g.data))}; }).filter(function(v){ return v.ms!==null; });
+  voci.sort(function(a,b){ return (a.g.nome<b.g.nome?-1:a.g.nome>b.g.nome?1:0) || (a.g.tipo<b.g.tipo?-1:a.g.tipo>b.g.tipo?1:0) || (a.g.ore||'').localeCompare(b.g.ore||'') || (a.ms-b.ms); });
+  var gruppi=[], cur=null;
+  voci.forEach(function(v){
+    if(cur && cur.nome===v.g.nome && cur.tipo===v.g.tipo && (cur.ore||'')===(v.g.ore||'') && (v.ms-cur.fine)<=3*86400000){ cur.fine=v.ms; cur.ids.push(idGiust(v.g)); }
+    else { cur={nome:v.g.nome, tipo:v.g.tipo, ore:v.g.ore, inizio:v.ms, fine:v.ms, ids:[idGiust(v.g)]}; gruppi.push(cur); }
+  });
+  gruppi.sort(function(a,b){ return b.inizio-a.inizio; });
+  var html='';
+  gruppi.forEach(function(gr){
+    var periodo = gr.ids.length>1 ? ('dal '+fmtDataIt(gr.inizio)+' al '+fmtDataIt(gr.fine)+' ('+gr.ids.length+' gg)') : fmtDataIt(gr.inizio);
+    html += '<div style="display:flex; justify-content:space-between; align-items:center; gap:6px; background:white; border:1px solid #cbd5e1; padding:6px; border-radius:6px; margin-bottom:4px; font-size:11px">';
+    html += '<div><b>'+esc(gr.nome)+'</b> - <span style="color:#0284c7">'+esc(periodo)+'</span>: <span style="background:#f3e8ff; color:#7e22ce; padding:2px 6px; border-radius:4px; font-weight:700">'+esc(gr.tipo)+(gr.ore?' ('+esc(gr.ore)+')':'')+'</span></div>';
+    html += '<button onclick="eliminaGruppoGiustificativi(\''+gr.ids.join(',')+'\')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 8px; font-size:10px; cursor:pointer; flex:none">Elimina</button>';
     html += '</div>';
   });
   container.innerHTML = html || '<div style="color:#94a3b8; text-align:center; padding:10px">Nessuna assenza registrata</div>';
 }
 
-async function eliminaGiustificativo(id){
-  var g = giustificativiSalvati.find(function(x){ return idGiust(x)===id; });
-  if(!g) return;
-  if(!confirm("Eliminare l'assenza di "+g.nome+" del "+g.data+" ("+g.tipo+")?")) return;
+async function eliminaGruppoGiustificativi(idsTxt){
+  var ids=idsTxt.split(',');
+  var lista=giustificativiSalvati.filter(function(x){ return ids.indexOf(idGiust(x))>=0; });
+  if(!lista.length) return;
+  var g0=lista[0];
+  if(!confirm('Eliminare '+lista.length+' giorni di "'+g0.tipo+'" per '+g0.nome+'?')) return;
   try{
-    if(g._k){ await fetchWithFallback("/giustificativi/"+g._k+".json",{method:"DELETE"}); }
-    giustificativiSalvati = giustificativiSalvati.filter(function(x){ return x!==g && !(g._k && x._k===g._k); });
+    var p={}, n=0; lista.forEach(function(x){ if(x._k){ p[x._k]=null; n++; } });
+    if(n) await fetchWithFallback("/giustificativi.json",{method:"PATCH", body:JSON.stringify(p), headers:JSON_H});
+    giustificativiSalvati=giustificativiSalvati.filter(function(x){ return lista.indexOf(x)<0; });
     salvaGiustLocali(); renderListaGiustificativi();
   }catch(e){ alert("Errore: non riesco a eliminare dal cloud. Riprova."); }
 }
