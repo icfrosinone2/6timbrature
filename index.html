@@ -655,7 +655,7 @@ function aggiornaLog(){
       var id=idTimb(t);
       var colore=t.tipo==='ENTRATA' ? '#16a34a' : '#dc2626';
       var prima=(t.timestamp||0) < dataInizioMs;
-      var nota=(t._loc?' <span style="color:#f59e0b">⏳ in invio</span>':'')+(prima?' <span style="color:#94a3b8">(prima della data di partenza: non conteggiata)</span>':'')+(t.convalidata?' <span style="color:#b45309">📵 convalidata</span>':'');
+      var nota=(t._loc?' <span style="color:#f59e0b">⏳ in invio</span>':'')+(prima?' <span style="color:#94a3b8">(prima della data di partenza: non conteggiata)</span>':'')+(t.convalidata?' <span style="color:#b45309">📵 convalidata</span>':'')+(t.manuale?' <span style="color:#0d9488">✍️ inserita a mano</span>':'');
       html+='<div style="border-left:3px solid '+colore+'; padding:8px; margin:6px 0; background:#f8fafc; font-size:11px; border-radius:6px; display:flex; justify-content:space-between; align-items:center; border:1px solid #e2e8f0; opacity:'+(prima?0.55:1)+'">'
         +'<div><span style="color:#64748b; font-size:10px">'+esc(t.data)+'</span>'+nota+'<br><b style="color:'+colore+'">'+esc(t.tipo)+'</b> - <b>'+esc(t.nome)+'</b> @ <b>'+esc(t.plesso)+'</b></div>'
         +'<div style="display:flex; gap:4px"><button onclick="modificaTimbratura(\''+id+'\')" style="background:#0ea5e9; color:white; border:0; border-radius:6px; padding:6px 10px; font-size:11px; font-weight:800; cursor:pointer">Modifica</button>'
@@ -802,6 +802,59 @@ async function caricaPresenzeManuali(){
     presenzeManuali=arr; salvaManLocali();
     if(document.getElementById('manLista')) renderListaPresenzeManuali();
   }catch(e){}
+}
+
+// ===== Aggiungi timbratura dimenticata =====
+function apriTimbraturaDimenticata(){
+  var modal=document.getElementById('modalDimenticata');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalDimenticata';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10005; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var nomi=anagrafiche.map(function(a){ return a.nome; }).sort();
+  var opt=nomi.map(function(n){ return '<option value="'+esc(n)+'">'+esc(n)+'</option>'; }).join('');
+  var o=new Date(), oggi=o.getFullYear()+'-'+('0'+(o.getMonth()+1)).slice(-2)+'-'+('0'+o.getDate()).slice(-2);
+  var inp='width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:14px; width:100%; max-width:520px; max-height:94vh; overflow:auto; border:2.5px solid #f59e0b">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center"><h3 style="margin:0; color:#d97706; font-size:16px">➕ Aggiungi timbratura dimenticata</h3>'
+    +'<button onclick="chiudiTimbraturaDimenticata()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<div style="font-size:11px; color:#475569; margin:8px 0">Compila solo l\'orario che manca (entrata, uscita, o tutte e due). Resta segnata come "inserita a mano".</div>'
+    +'<label style="font-size:12px; font-weight:700">Dipendente:</label><select id="dimDip" style="'+inp+'">'+opt+'</select>'
+    +'<label style="font-size:12px; font-weight:700; display:block; margin-top:8px">Giorno:</label><input type="date" id="dimGiorno" value="'+oggi+'" max="'+oggi+'" style="'+inp+'">'
+    +'<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px"><div><label style="font-size:12px; font-weight:700">Entrata:</label><input type="time" id="dimEnt" style="'+inp+'"></div>'
+    +'<div><label style="font-size:12px; font-weight:700">Uscita:</label><input type="time" id="dimUsc" style="'+inp+'"></div></div>'
+    +'<button id="dimBtn" onclick="aggiungiTimbraturaDimenticata()" style="margin-top:12px; width:100%; background:#f59e0b; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer">➕ Aggiungi</button></div>';
+}
+function chiudiTimbraturaDimenticata(){ var m=document.getElementById('modalDimenticata'); if(m) m.style.display='none'; }
+
+async function aggiungiTimbraturaDimenticata(){
+  var nome=document.getElementById('dimDip').value, giorno=document.getElementById('dimGiorno').value;
+  var ent=document.getElementById('dimEnt').value, usc=document.getElementById('dimUsc').value;
+  if(!nome || !giorno){ alert('Scegli dipendente e giorno.'); return; }
+  if(!ent && !usc){ alert('Scrivi almeno un orario (entrata o uscita).'); return; }
+  if(ent && usc && timeToMinutes(usc)<=timeToMinutes(ent)){ alert("L'uscita deve essere dopo l'entrata."); return; }
+  var a=anagrafiche.find(function(x){ return x.nome===nome; });
+  var p=giorno.split('-');
+  var daAggiungere=[]; if(ent) daAggiungere.push(['ENTRATA',ent]); if(usc) daAggiungere.push(['USCITA',usc]);
+  var nuovi=[];
+  for(var i=0;i<daAggiungere.length;i++){
+    var h=daAggiungere[i][1].split(':');
+    var dt=new Date(+p[0],+p[1]-1,+p[2],+h[0],+h[1],0);
+    if(dt.getTime()>Date.now()+60000){ alert('Non puoi inserire una timbratura nel futuro.'); return; }
+    nuovi.push({nome:nome, tipo:daAggiungere[i][0], plesso:(a?a.plesso:'-'), data:dt.toLocaleDateString('it-IT')+', '+dt.toLocaleTimeString('it-IT'), ora:dt.toLocaleTimeString('it-IT'), timestamp:dt.getTime(), manuale:true, _loc:true});
+  }
+  var btn=document.getElementById('dimBtn'); btn.disabled=true; btn.textContent='⏳ Salvo...';
+  nuovi.forEach(function(t){ timbratureSalvate.unshift(t); });
+  timbratureSalvate.sort(function(x,y){ return (y.timestamp||0)-(x.timestamp||0); });
+  salvaTimbLocali(); aggiornaLog();
+  for(var k=0;k<nuovi.length;k++){ await salvaCondivisa(nuovi[k]); }
+  btn.disabled=false; btn.textContent='➕ Aggiungi';
+  chiudiTimbraturaDimenticata();
+  try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
+  var avviso = (dataInizioMs && nuovi[0].timestamp<dataInizioMs) ? '\n\n⚠️ Attenzione: è prima della data di partenza, quindi non verrà conteggiata.' : '';
+  alert('✅ Timbratura aggiunta per '+nome+'.'+avviso);
 }
 
 function richiediPresenzeManuali(){
@@ -1802,6 +1855,7 @@ function generaResocontoDareAvere(){
     htmlModal+='<button onclick="generaResocontoInterno()" style="flex:1; background:#0ea5e9; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">📊 Genera Resoconto</button>';
     htmlModal+='<button onclick="esportaResocontoCSV()" style="flex:1; background:#16a34a; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">📥 Esporta in CSV (Excel)</button>';
     htmlModal+='</div>';
+    htmlModal+='<button onclick="apriTimbraturaDimenticata()" style="width:100%; margin-top:8px; background:#f59e0b; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">➕ Aggiungi timbratura dimenticata</button>';
     htmlModal+='<button onclick="richiediPresenzeManuali()" style="width:100%; margin-top:8px; background:#0d9488; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">✍️ Inserisci presenze manuali (PIN)</button>';
     htmlModal+='<button onclick="apriCancellaTimbrature()" style="width:100%; margin-top:8px; background:#dc2626; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">🗑️ Cancella timbrature (tutte o a scelta)</button>';
 
@@ -1943,7 +1997,12 @@ function generaResocontoInterno(){
         } else {
           minLavorati = 0;
           coloreDiff = '#ef4444';
-          statoStr = '🔴 ASSENTE (-' + Math.floor(minPrevisti/60) + 'h ' + (minPrevisti%60) + 'm)';
+          if(timbGiorn.length > 0){
+            coloreDiff = '#f59e0b';
+            statoStr = '⚠️ TIMBRATURA INCOMPLETA (manca entrata o uscita) (-' + Math.floor(minPrevisti/60) + 'h ' + (minPrevisti%60) + 'm)';
+          } else {
+            statoStr = '🔴 ASSENTE (-' + Math.floor(minPrevisti/60) + 'h ' + (minPrevisti%60) + 'm)';
+          }
         }
 
         var prevStr = Math.floor(minPrevisti/60) + 'h ' + (minPrevisti%60) + 'm';
@@ -1958,7 +2017,7 @@ function generaResocontoInterno(){
               return;
             }
             var globalIdx = timbratureSalvate.indexOf(tg);
-            lavStr += `<div>• ${tg.tipo} (${tg.ora}) <button onclick="adminEliminaTimbraturaDaResoconto(${globalIdx})" style="background:#ef4444; color:white; border:0; border-radius:3px; padding:1px 4px; font-size:8px; cursor:pointer; margin-left:4px">Del Admin</button></div>`;
+            lavStr += `<div>• ${tg.tipo} (${tg.ora})${tg.manuale ? ' ✍️' : ''} <button onclick="adminEliminaTimbraturaDaResoconto(${globalIdx})" style="background:#ef4444; color:white; border:0; border-radius:3px; padding:1px 4px; font-size:8px; cursor:pointer; margin-left:4px">Del Admin</button></div>`;
           });
           lavStr += '</div>';
         }
