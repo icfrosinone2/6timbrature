@@ -374,15 +374,78 @@ function minToHM(m){ var sg=m<0?'-':''; m=Math.abs(m); return sg+Math.floor(m/60
 const TIPO_FERIE_AP='Ferie Anno Prec.', TIPO_ORE_ECC='Riposo compensativo (ore eccedenti)';
 function dataDaGiust(g){ var ms=parseDataIt(normData(g.data)); return ms===null?null:new Date(ms); }
 function ferieAPUsate(nome){ return giustificativiSalvati.filter(function(g){ return g.nome===nome && g.tipo===TIPO_FERIE_AP; }).length; }
-function oreEccUsateMin(a){
+function oreEccUsateMin(a, da, fino){
   var tot=0;
   giustificativiSalvati.forEach(function(g){
     if(g.nome!==a.nome || g.tipo!==TIPO_ORE_ECC) return;
+    if(da || fino){ var dg=dataDaGiust(g); if(!dg || (da && dg<da) || (fino && dg>fino)) return; }
     var m=hmToMin(g.ore);
     if(m===null){ var d=dataDaGiust(g); m=0; if(d){ slotsPerData(a,d).forEach(function(sl){ m+=timeToMinutes(sl.uscita)-timeToMinutes(sl.entrata); }); } }
     tot+=m;
   });
   return tot;
+}
+
+// ===== BANCA ORE: ore in piu' meno permessi da recuperare meno riposi compensativi =====
+function inizioBancaOre(){
+  if(dataInizioMs) return new Date(dataInizioMs);
+  var o=new Date(); return new Date(o.getMonth()>=8 ? o.getFullYear() : o.getFullYear()-1, 8, 1);
+}
+function giornoBanca(a, d, conteggiate){
+  var slots=slotsPerData(a,d); if(!slots.length) return null;
+  var minPrev=0; slots.forEach(function(sl){ minPrev+=timeToMinutes(sl.uscita)-timeToMinutes(sl.entrata); });
+  var gLoc=d.toLocaleDateString('it-IT'), gNorm=normData(gLoc);
+  var tg=conteggiate.filter(function(t){ return t.nome===a.nome && normData(t.data)===gNorm; });
+  if(!tg.length){
+    var iso=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+    var pm=presenzeManuali.find(function(m){ return m.nome===a.nome && m.giorno===iso; });
+    if(pm){
+      var parti=(pm.parti && pm.parti.length>1) ? pm.parti : [{e:pm.entrata,u:pm.uscita}];
+      parti.forEach(function(pt){ tg.push({tipo:'ENTRATA', ora:pt.e+':00'}); tg.push({tipo:'USCITA', ora:pt.u+':00'}); });
+    }
+  }
+  if(!tg.length) return null;
+  var calc=calcolaGiornata(tg, slots, minPrev); if(!calc) return null;
+  var diff=calc.min-minPrev-straordinarioMin(a.nome,gLoc);
+  var g=giustificativiSalvati.find(function(x){ return x.nome===a.nome && normData(x.data)===gNorm; });
+  return {diff:diff, perm:!!(g && g.tipo==='Permesso Orario da recuperare')};
+}
+function bancaOre(a, fino){
+  var ini=inizioBancaOre(), cur=new Date(ini.getFullYear(),ini.getMonth(),ini.getDate());
+  var fine=new Date(fino.getFullYear(),fino.getMonth(),fino.getDate());
+  var piu=0, meno=0, conteggiate=timbratureConteggiate();
+  while(cur<=fine){
+    var info=giornoBanca(a,cur,conteggiate);
+    if(info){ if(info.diff>0) piu+=info.diff; else if(info.diff<0) meno+=info.diff; }
+    cur.setDate(cur.getDate()+1);
+  }
+  var iniz=(a.oreEccIniziali!=null) ? a.oreEccIniziali : 0;
+  var riposo=oreEccUsateMin(a, new Date(ini.getFullYear(),ini.getMonth(),ini.getDate()), fine);
+  return {iniz:iniz, piu:piu, meno:meno, riposo:riposo, totale:iniz+piu+meno-riposo, da:ini, a:fine};
+}
+function segno(m){ return (m>0?'+':(m<0?'-':''))+minToHM(Math.abs(m)); }
+function htmlBancaOre(nomi, fino){
+  var righe='', n=0;
+  nomi.forEach(function(nome){
+    var a=anagrafiche.find(function(x){ return x.nome===nome; }); if(!a) return;
+    var b=bancaOre(a, fino);
+    if(nomi.length>1 && !b.iniz && !b.piu && !b.meno && !b.riposo) return;
+    n++;
+    righe+='<tr><td style="border:1px solid #cbd5e1; padding:4px; font-weight:700">'+esc(nome)+'</td>'
+      +'<td style="border:1px solid #cbd5e1; padding:4px; text-align:center">'+segno(b.iniz)+'</td>'
+      +'<td style="border:1px solid #cbd5e1; padding:4px; text-align:center; color:#16a34a">'+segno(b.piu)+'</td>'
+      +'<td style="border:1px solid #cbd5e1; padding:4px; text-align:center; color:#dc2626">'+segno(b.meno)+'</td>'
+      +'<td style="border:1px solid #cbd5e1; padding:4px; text-align:center; color:#dc2626">'+segno(-b.riposo)+'</td>'
+      +'<td style="border:1px solid #cbd5e1; padding:4px; text-align:center; font-weight:800; color:'+(b.totale<0?'#dc2626':'#16a34a')+'">'+segno(b.totale)+'</td></tr>';
+  });
+  var ini=inizioBancaOre();
+  var h='<div style="background:#fffbeb; border:2px solid #fcd34d; border-radius:10px; padding:8px; margin:8px 0">'
+    +'<div style="font-weight:800; font-size:13px; color:#92400e">🏦 Banca ore (dal '+fmtDataIt(ini.getTime())+' al '+fmtDataIt(fino.getTime())+')</div>'
+    +'<div style="font-size:10px; color:#78716c; margin:2px 0 6px 0">Ore in più fatte, meno le ore mancanti quando l\'orario giornaliero non è completato (anche senza permesso; se non ci sono ore in più il totale va in negativo) e meno i riposi compensativi.</div>';
+  if(!n){ return h+'<div style="font-size:11px; color:#94a3b8">Nessun dipendente con ore in più o in meno nel periodo.</div></div>'; }
+  h+='<div style="overflow:auto"><table style="width:100%; border-collapse:collapse; font-size:11px"><tr>'
+    +['Dipendente','Iniziale','Ore in più','Ore in meno','Riposi compens.','TOTALE'].map(function(t){ return '<th style="border:1px solid #cbd5e1; padding:4px; background:#fde68a">'+t+'</th>'; }).join('')+'</tr>'+righe+'</table></div></div>';
+  return h;
 }
 
 function getOrarioPerOggi(a){
@@ -1935,9 +1998,10 @@ function apriSchedaAnagrafica(nome){
   var fu=ferieAPUsate(a.nome), fr=(a.ferieAPIniziali!=null) ? (a.ferieAPIniziali-fu) : null;
   htmlModal+='<div style="margin-top:3px; color:#334155">Usate: <b>'+fu+'</b>'+(fr!==null?' &nbsp;→ Residuo: <b style="color:'+(fr<0?'#dc2626':'#16a34a')+'">'+fr+' giorni</b>':'')+'</div>';
   htmlModal+='<b style="color:#166534; display:block; margin-top:10px">⏱️ Ore eccedenti</b><div style="display:flex; gap:8px; align-items:center; margin-top:4px"><span>Residuo iniziale (ore:minuti):</span><input type="text" id="editOreIni" placeholder="es. 12:30" value="'+(a.oreEccIniziali!=null?minToHM(a.oreEccIniziali):'')+'" style="width:90px; padding:6px; border:1.5px solid #cbd5e1; border-radius:6px"></div>';
-  var ou=oreEccUsateMin(a), orr=(a.oreEccIniziali!=null) ? (a.oreEccIniziali-ou) : null;
-  htmlModal+='<div style="margin-top:3px; color:#334155">Usate: <b>'+minToHM(ou)+'</b>'+(orr!==null?' &nbsp;→ Residuo: <b style="color:'+(orr<0?'#dc2626':'#16a34a')+'">'+minToHM(orr)+'</b>':'')+'</div>';
-  htmlModal+='<div style="color:#64748b; margin-top:6px">Si scalano da sole quando registri le assenze "Ferie Anno Prec." e "Riposo compensativo (ore eccedenti)".</div></div>';
+  var bk=bancaOre(a, new Date());
+  htmlModal+='<div style="margin-top:3px; color:#334155">Ore in più: <b style="color:#16a34a">'+segno(bk.piu)+'</b> &nbsp;|&nbsp; Ore in meno: <b style="color:#dc2626">'+segno(bk.meno)+'</b> &nbsp;|&nbsp; Riposi compensativi: <b style="color:#dc2626">'+segno(-bk.riposo)+'</b></div>';
+  htmlModal+='<div style="margin-top:3px; color:#334155">Totale ore eccedenti oggi: <b style="color:'+(bk.totale<0?'#dc2626':'#16a34a')+'">'+segno(bk.totale)+'</b></div>';
+  htmlModal+='<div style="color:#64748b; margin-top:6px">Ferie e riposi si scalano da soli; le ore in più e i permessi "da recuperare" vengono calcolati dal Resoconto ore.</div></div>';
   htmlModal+='<h4 id="titoloA" style="margin:8px 0 4px 0; color:#1e293b; font-size:13px">'+(Nc>1?'⏰ SETTIMANA 1':'⏰ Orario Settimanale')+'</h4>';
   htmlModal+='<div id="containerGiorniScheda">';
   for(var g=0;g<giorniChiave.length;g++){
@@ -2289,6 +2353,7 @@ function generaResocontoInterno(){
   var dipendentiDaElaborare = dipScelto === "TUTTI" ? anagrafiche.map(x=>x.nome) : [dipScelto];
   
   var html = '<h3 style="color:#1e293b; font-size:15px">📅 Resoconto Dettagliato Mensile & Gestione Timbrature</h3>';
+  html += htmlBancaOre(dipendentiDaElaborare, dEnd);
   html += '<div style="overflow:auto"><table style="width:100%; border-collapse:collapse; font-size:11px">';
   html += '<tr><th style="border:1px solid #cbd5e1; padding:6px; background:#0ea5e9; color:white">Dipendente</th><th style="border:1px solid #cbd5e1; padding:6px; background:#0ea5e9; color:white">Data</th><th style="border:1px solid #cbd5e1; padding:6px; background:#0ea5e9; color:white">Previsto</th><th style="border:1px solid #cbd5e1; padding:6px; background:#0ea5e9; color:white">Effettivo / Timbrature</th><th style="border:1px solid #cbd5e1; padding:6px; background:#0ea5e9; color:white">Saldo ore</th></tr>';
 
@@ -2347,11 +2412,10 @@ function generaResocontoInterno(){
           var strMin = straordinarioMin(nome, dataStrFormatted);
           if(strMin > 0){ diff -= strMin; notaCalc += '<div style="font-size:9px; color:#15803d">💶 straordinario pagato: ' + minToHM(strMin) + '</div>'; }
           
+          coloreDiff = diff >= 0 ? '#16a34a' : '#dc2626';
           if(giustificato && giustificato.tipo === 'Permesso Orario da recuperare'){
-            diff = 0;
-            statoStr = '⏳ RECUPERO ORARIO (Saldo 0)';
+            statoStr = '⏳ PERMESSO DA RECUPERARE (' + minutesToHoursStr(diff) + ')';
           } else {
-            coloreDiff = diff >= 0 ? '#16a34a' : '#dc2626';
             statoStr = minutesToHoursStr(diff);
           }
         } else if(giustificato){
