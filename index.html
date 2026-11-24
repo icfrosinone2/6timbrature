@@ -795,30 +795,42 @@ function apriCancellaTimbrature(){
     +'<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px"><h3 style="margin:0; color:#dc2626; font-size:16px">🗑️ Cancella timbrature</h3>'
     +'<button onclick="chiudiCancellaTimbrature()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
     +'<select id="cancDip" onchange="renderCancellaTimbrature()" style="width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; margin-bottom:8px">'+opt+'</select>'
+    +'<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-bottom:8px"><div><label style="font-size:10px; font-weight:700">Dal (facoltativo):</label><input type="date" id="cancDal" onchange="renderCancellaTimbrature()" style="width:100%; padding:6px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box"></div>'
+    +'<div><label style="font-size:10px; font-weight:700">Al (facoltativo):</label><input type="date" id="cancAl" onchange="renderCancellaTimbrature()" style="width:100%; padding:6px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box"></div></div>'
     +'<div style="display:flex; gap:6px; margin-bottom:8px; flex-wrap:wrap">'
     +'<button onclick="cancSeleziona(true)" style="flex:1; background:#dc2626; color:white; border:0; border-radius:8px; padding:8px; font-weight:800; font-size:12px; cursor:pointer">☑️ Seleziona TUTTE</button>'
     +'<button onclick="cancSeleziona(false)" style="flex:1; background:#64748b; color:white; border:0; border-radius:8px; padding:8px; font-weight:800; font-size:12px; cursor:pointer">⬜ Deseleziona</button></div>'
     +'<div id="cancLista" style="flex:1; overflow:auto; border:1px solid #e2e8f0; border-radius:8px; padding:4px; min-height:120px"></div>'
     +'<button onclick="richiediCancellaSelezionate()" style="margin-top:10px; background:#dc2626; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer" id="cancBtn">🗑️ Elimina selezionate (PIN)</button></div>';
   renderCancellaTimbrature();
+  caricaPresenzeManuali().then(function(){ renderCancellaTimbrature(); });
 }
 function chiudiCancellaTimbrature(){ var m=document.getElementById('modalCancTimb'); if(m) m.style.display='none'; }
 
 function renderCancellaTimbrature(){
   var dip=document.getElementById('cancDip').value;
+  var dal=document.getElementById('cancDal') ? document.getElementById('cancDal').value : '', al=document.getElementById('cancAl') ? document.getElementById('cancAl').value : '';
+  var dMs=dal ? new Date(dal+'T00:00:00').getTime() : 0, aMs=al ? new Date(al+'T23:59:59').getTime() : Infinity;
   var voci=[];
-  timbratureSalvate.forEach(function(t){ voci.push({id:'T:'+idTimb(t), t:t, ng:false}); });
-  timbratureNoGps.forEach(function(t){ voci.push({id:'N:'+idTimb(t), t:t, ng:true}); });
-  voci=voci.filter(function(v){ return dip==='TUTTI' || v.t.nome===dip; });
-  voci.sort(function(a,b){ return (b.t.timestamp||0)-(a.t.timestamp||0); });
+  timbratureSalvate.forEach(function(t){ voci.push({id:'T:'+idTimb(t), t:t, ts:t.timestamp||0, nome:t.nome}); });
+  timbratureNoGps.forEach(function(t){ voci.push({id:'N:'+idTimb(t), t:t, ng:true, ts:t.timestamp||0, nome:t.nome}); });
+  presenzeManuali.forEach(function(m){ voci.push({id:'M:'+m._k, m:m, ts:m.timestamp||0, nome:m.nome}); });
+  voci=voci.filter(function(v){ return (dip==='TUTTI' || v.nome===dip) && v.ts>=dMs && v.ts<=aMs; });
+  voci.sort(function(a,b){ return b.ts-a.ts; });
   var html='';
   voci.forEach(function(v){
-    var t=v.t, colore=t.tipo==='ENTRATA'?'#16a34a':'#dc2626';
+    var corpo;
+    if(v.m){
+      var m=v.m, orT=(m.parti && m.parti.length>1) ? m.parti.map(function(p){ return esc(p.e)+'-'+esc(p.u); }).join(' / ') : (esc(m.entrata)+' - '+esc(m.uscita));
+      corpo='<span style="color:#64748b; font-size:10px">'+esc(giornoIt(m.giorno))+'</span> <span style="color:#0d9488">✍️ presenza manuale</span><br><b>'+esc(m.nome)+'</b> - '+orT;
+    } else {
+      var t=v.t, colore=t.tipo==='ENTRATA'?'#16a34a':'#dc2626';
+      corpo='<span style="color:#64748b; font-size:10px">'+esc(t.data)+'</span>'+(v.ng?' <span style="color:#b45309">📵 senza GPS</span>':'')+(t.manuale?' <span style="color:#0d9488">✍️ inserita a mano</span>':'')+'<br><b style="color:'+colore+'">'+esc(t.tipo)+'</b> - <b>'+esc(t.nome)+'</b> @ '+esc(t.plesso);
+    }
     html+='<label style="display:flex; align-items:center; gap:8px; padding:6px; border-bottom:1px solid #f1f5f9; font-size:12px; cursor:pointer">'
-      +'<input type="checkbox" class="cancChk" data-id="'+v.id+'" onchange="cancConta()" style="width:20px; height:20px; flex:none">'
-      +'<span><span style="color:#64748b; font-size:10px">'+esc(t.data)+'</span>'+(v.ng?' <span style="color:#b45309">📵 senza GPS</span>':'')+'<br><b style="color:'+colore+'">'+esc(t.tipo)+'</b> - <b>'+esc(t.nome)+'</b> @ '+esc(t.plesso)+'</span></label>';
+      +'<input type="checkbox" class="cancChk" data-id="'+esc(v.id)+'" onchange="cancConta()" style="width:20px; height:20px; flex:none"><span>'+corpo+'</span></label>';
   });
-  document.getElementById('cancLista').innerHTML=html || '<div style="color:#94a3b8; text-align:center; padding:16px">Nessuna timbratura</div>';
+  document.getElementById('cancLista').innerHTML=html || '<div style="color:#94a3b8; text-align:center; padding:16px">Nessuna timbratura o presenza manuale</div>';
   cancConta();
 }
 function cancSeleziona(v){ document.querySelectorAll('.cancChk').forEach(function(c){ c.checked=v; }); cancConta(); }
@@ -829,29 +841,37 @@ function cancConta(){
 function richiediCancellaSelezionate(){
   var ids=Array.prototype.map.call(document.querySelectorAll('.cancChk:checked'), function(c){ return c.getAttribute('data-id'); });
   if(!ids.length){ alert('Seleziona almeno una timbratura (oppure tocca "Seleziona TUTTE").'); return; }
-  apriModalPinSicuro("Elimina "+ids.length+" timbrature", "Inserisci il PIN per eliminare "+ids.length+" timbrature da tutti i telefoni:", function(){
-    if(!confirm("Eliminare definitivamente "+ids.length+" timbrature?")) return;
+  apriModalPinSicuro("Elimina "+ids.length+" voci", "Inserisci il PIN per eliminare "+ids.length+" voci da tutti i telefoni:", function(){
+    if(!confirm("Eliminare definitivamente "+ids.length+" voci (timbrature e presenze manuali)?")) return;
     eseguiCancellaSelezionate(ids);
   });
 }
 async function eseguiCancellaSelezionate(ids){
-  var tl=[], nl=[];
+  var tl=[], nl=[], ml=[];
   ids.forEach(function(id){
     if(id.indexOf('T:')===0){ var t=cercaTimb(id.slice(2)); if(t) tl.push(t); }
-    else { var n=cercaNg(id.slice(2)); if(n) nl.push(n); }
+    else if(id.indexOf('N:')===0){ var n=cercaNg(id.slice(2)); if(n) nl.push(n); }
+    else if(id.indexOf('M:')===0){ var m=presenzeManuali.find(function(x){ return x._k===id.slice(2); }); if(m) ml.push(m); }
   });
   try{
-    var pt={}, pn={}, ct=0, cn=0;
-    tl.forEach(function(t){ t._del=true; if(t._k){ pt[t._k]=null; ct++; } });
-    nl.forEach(function(t){ t._del=true; if(t._k){ pn[t._k]=null; cn++; } });
-    if(ct) await fetchWithFallback("/timbrature.json",{method:"PATCH", body:JSON.stringify(pt), headers:JSON_H});
-    if(cn) await fetchWithFallback("/timbrature_nogps.json",{method:"PATCH", body:JSON.stringify(pn), headers:JSON_H});
+    var pt={}, pn={}, pm={};
+    tl.forEach(function(t){ t._del=true; if(t._k) pt[t._k]=null; });
+    nl.forEach(function(t){ t._del=true; if(t._k) pn[t._k]=null; });
+    ml.forEach(function(m){ pm[m._k]=null; });
+    var patchaInBlocchi=async function(path, obj){
+      var k=Object.keys(obj);
+      for(var i=0;i<k.length;i+=300){ var b={}; k.slice(i,i+300).forEach(function(x){ b[x]=null; }); await fetchWithFallback(path,{method:"PATCH", body:JSON.stringify(b), headers:JSON_H}); }
+    };
+    await patchaInBlocchi("/timbrature.json", pt);
+    await patchaInBlocchi("/timbrature_nogps.json", pn);
+    await patchaInBlocchi("/presenze_manuali.json", pm);
     timbratureSalvate=timbratureSalvate.filter(function(x){ return tl.indexOf(x)<0; });
     timbratureNoGps=timbratureNoGps.filter(function(x){ return nl.indexOf(x)<0; });
-    salvaTimbLocali(); salvaNoGpsLocali(); aggiornaLog(); aggiornaLogNoGps();
+    presenzeManuali=presenzeManuali.filter(function(x){ return ml.indexOf(x)<0; });
+    salvaTimbLocali(); salvaNoGpsLocali(); salvaManLocali(); aggiornaLog(); aggiornaLogNoGps();
     renderCancellaTimbrature();
     try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
-    alert("✅ Eliminate "+(tl.length+nl.length)+" timbrature.");
+    alert("✅ Eliminate "+(tl.length+nl.length+ml.length)+" voci.");
   }catch(e){
     tl.concat(nl).forEach(function(t){ t._del=false; });
     alert("Errore: non riesco a eliminare dal cloud. Riprova.");
@@ -1754,18 +1774,21 @@ function apriGestioneGiustificativi(){
   html += '<button onclick="aggiungiGiustificativo()" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; width:100%; margin-top:10px; cursor:pointer">➕ Registra Assenza</button>';
   html += '</div>';
 
-  html += '<div style="background:#f0f9ff; border:1px solid #7dd3fc; padding:10px; border-radius:10px; margin-bottom:12px">';
-  html += '<b style="font-size:12px; color:#0369a1">🖨️ Stampa assenze per dipendente</b>';
-  html += '<select id="stpDip" style="'+inp+'; margin-top:6px"><option value="TUTTI">TUTTI i dipendenti</option>'+optNomi+'</select>';
-  html += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px">';
-  html += '<div><label style="font-size:11px; font-weight:700; display:block">Dal:</label><input type="date" id="stpDal" value="'+dalStr+'" style="'+inp+'"></div>';
-  html += '<div><label style="font-size:11px; font-weight:700; display:block">Al:</label><input type="date" id="stpAl" value="'+alStr+'" style="'+inp+'"></div>';
-  html += '</div>';
-  html += '<button onclick="stampaAssenze()" style="background:#0ea5e9; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; width:100%; margin-top:10px; cursor:pointer">🖨️ Anteprima e stampa</button>';
-  html += '</div>';
+  var prot = '';
+  prot += '<div style="background:#f0f9ff; border:1px solid #7dd3fc; padding:10px; border-radius:10px; margin-bottom:12px">';
+  prot += '<b style="font-size:12px; color:#0369a1">🖨️ Stampa assenze per dipendente</b>';
+  prot += '<select id="stpDip" style="'+inp+'; margin-top:6px"><option value="TUTTI">TUTTI i dipendenti</option>'+optNomi+'</select>';
+  prot += '<div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; margin-top:6px">';
+  prot += '<div><label style="font-size:11px; font-weight:700; display:block">Dal:</label><input type="date" id="stpDal" value="'+dalStr+'" style="'+inp+'"></div>';
+  prot += '<div><label style="font-size:11px; font-weight:700; display:block">Al:</label><input type="date" id="stpAl" value="'+alStr+'" style="'+inp+'"></div>';
+  prot += '</div>';
+  prot += '<button onclick="stampaAssenze()" style="background:#0ea5e9; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; width:100%; margin-top:10px; cursor:pointer">🖨️ Anteprima e stampa</button>';
+  prot += '</div>';
 
-  html += '<b style="font-size:12px; color:#1e293b">Assenze Registrate:</b>';
-  html += '<div id="listaGiustificativiUI" style="max-height:180px; overflow:auto; margin-top:6px"></div>';
+  prot += '<b style="font-size:12px; color:#1e293b">Assenze Registrate:</b>';
+  prot += '<div id="listaGiustificativiUI" style="max-height:180px; overflow:auto; margin-top:6px"></div>';
+  window._htmlGiustProtetto = prot;
+  html += '<div id="areaProtettaGiust" style="margin-top:6px"><button onclick="richiediSbloccoGiust()" style="background:#0ea5e9; color:white; border:0; border-radius:10px; padding:12px; font-weight:800; width:100%; cursor:pointer">🔒 Stampa assenze e elenco assenze registrate (PIN)</button></div>';
   html += '</div>';
   modal.innerHTML = html;
   aggiungiPeriodoGiust(oggiStr);
@@ -1773,6 +1796,13 @@ function apriGestioneGiustificativi(){
 }
 
 let _giustRighe=0;
+function richiediSbloccoGiust(){
+  apriModalPinSicuro("Stampa e elenco assenze", "Inserisci il PIN per stampare le assenze e vedere l'elenco delle assenze registrate:", function(){
+    var a=document.getElementById('areaProtettaGiust');
+    if(a){ a.innerHTML=window._htmlGiustProtetto||''; renderListaGiustificativi(); }
+  });
+}
+
 function aggiungiPeriodoGiust(val){
   var cont=document.getElementById('giustPeriodi'); if(!cont) return;
   var id=++_giustRighe, inp='width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:6px; box-sizing:border-box';
