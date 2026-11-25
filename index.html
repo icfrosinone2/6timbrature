@@ -371,6 +371,12 @@ function slotsPerData(a, d){
 }
 function hmToMin(v){ v=String(v||'').trim(); if(!v) return null; if(v.indexOf(':')>=0){ var p=v.split(':'); var h=parseInt(p[0]), m=parseInt(p[1]||0); if(isNaN(h)||isNaN(m)) return null; return h*60+m; } var x=parseFloat(v.replace(',','.')); return isNaN(x)?null:Math.round(x*60); }
 function minToHM(m){ var sg=m<0?'-':''; m=Math.abs(m); return sg+Math.floor(m/60)+':'+('0'+(m%60)).slice(-2); }
+const TIPO_104='Legge 104';
+const PARENTELE_104=['Lavoratore stesso (104 personale)','Coniuge / unito civilmente / convivente','Figlio/a','Genitore','Fratello / Sorella','Nonno/a','Nipote','Suocero/a','Genero / Nuora','Cognato/a','Zio/a','Altro parente o affine'];
+function dettaglio104(g){
+  if(g.tipo!==TIPO_104 || !g.persona && !g.parentela) return '';
+  return 'assiste: '+(g.persona||'-')+(g.parentela?' ('+g.parentela+')':'')+(g.rivedibile==='si'?' - rivedibile':(g.rivedibile==='no'?' - non rivedibile':''));
+}
 const TIPO_FERIE_AP='Ferie Anno Prec.', TIPO_ORE_ECC='Riposo compensativo (ore eccedenti)';
 // Permessi orari con tetto annuo (anno scolastico 1 settembre - 31 agosto) per dipendente
 const TETTI_PERMESSI={
@@ -1165,7 +1171,7 @@ function renderFoglioGiorno(){
   var p=giorno.split('-'), d=new Date(+p[0],+p[1]-1,+p[2]), gIt=giornoIt(giorno);
   var nomeG=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][d.getDay()];
   var lista=[], html='<div style="background:#f0fdfa; padding:6px 8px; font-weight:800; font-size:13px; position:sticky; top:0">'+nomeG+' '+esc(gIt)+(plesso!=='TUTTI'?' - '+esc(plesso):'')+'</div>';
-  var optA='<option value="">— nessuna assenza —</option>'+TIPI_ASSENZA.filter(function(t){ return !TETTI_PERMESSI[t[0]]; }).map(function(t){ return '<option value="'+esc(t[0])+'">'+esc(t[1])+'</option>'; }).join('');
+  var optA='<option value="">— nessuna assenza —</option>'+TIPI_ASSENZA.filter(function(t){ return !TETTI_PERMESSI[t[0]] && t[0]!==TIPO_104; }).map(function(t){ return '<option value="'+esc(t[0])+'">'+esc(t[1])+'</option>'; }).join('');
   var inT='width:100%; padding:7px 4px; border:1.5px solid #cbd5e1; border-radius:6px; box-sizing:border-box; text-align:center; font-size:14px; min-width:0';
   anagrafiche.slice().sort(function(a,b){ return a.nome<b.nome?-1:1; }).forEach(function(a){
     if(plesso!=='TUTTI' && a.plesso!==plesso) return;
@@ -1793,10 +1799,16 @@ function apriGestioneGiustificativi(){
   html += '<b style="font-size:12px; color:#1e293b">Inserisci Assenza / Giustificativo</b><br>';
   html += '<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Dipendente:</label>';
   html += '<select id="giustDip" style="'+inp+'">'+optNomi+'</select>';
-  html += '<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Tipo Assenza / Voce:</label><select id="giustTipo" style="'+inp+'">'+optTipi+'</select>';
+  html += '<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Tipo Assenza / Voce:</label><select id="giustTipo" onchange="giustTipoCambia()" style="'+inp+'">'+optTipi+'</select>';
   html += '<div style="font-size:11px; font-weight:700; margin-top:8px">Periodi (dal - al):</div><div id="giustPeriodi"></div>';
   html += '<button type="button" onclick="aggiungiPeriodoGiust()" style="background:#e9d5ff; color:#6b21a8; border:0; border-radius:8px; padding:8px; font-weight:800; width:100%; margin-top:6px; cursor:pointer; font-size:12px">➕ Aggiungi un altro periodo</button>';
   html += '<div style="margin-top:6px"><label style="font-size:11px; font-weight:700; display:block">Ore usate (es. 1:30). Obbligatorie per Visita medica e Assemblea sindacale; per il Riposo compensativo vuoto = giornata intera</label><input type="text" id="giustOre" placeholder="es. 2:30" style="'+inp+'"></div>';
+  var optPar='<option value="">-- scegli la parentela --</option>'+PARENTELE_104.map(function(x){ return '<option value="'+esc(x)+'">'+esc(x)+'</option>'; }).join('');
+  html += '<div id="giust104Box" style="display:none; margin-top:8px; background:#fdf2f8; border:1.5px solid #f9a8d4; border-radius:8px; padding:8px">'
+    +'<div style="font-size:12px; font-weight:800; color:#9d174d">🤝 Legge 104 - dati obbligatori</div>'
+    +'<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Persona da assistere (nome e cognome):</label><input type="text" id="giustPersona" style="'+inp+'" placeholder="es. Mario Rossi">'
+    +'<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Parentela:</label><select id="giustParentela" style="'+inp+'">'+optPar+'</select>'
+    +'<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Rivedibile? <span style="font-weight:400; color:#64748b">(facoltativo)</span></label><select id="giustRivedibile" style="'+inp+'"><option value="">-- non indicato --</option><option value="si">Sì, rivedibile</option><option value="no">No, non rivedibile</option></select></div>';
   html += '<button onclick="aggiungiGiustificativo()" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; width:100%; margin-top:10px; cursor:pointer">➕ Registra Assenza</button>';
   html += '</div>';
 
@@ -1829,6 +1841,11 @@ function richiediSbloccoGiust(){
   });
 }
 
+function giustTipoCambia(){
+  var t=document.getElementById('giustTipo'), b=document.getElementById('giust104Box');
+  if(b && t) b.style.display = (t.value===TIPO_104) ? 'block' : 'none';
+}
+
 function aggiungiPeriodoGiust(val){
   var cont=document.getElementById('giustPeriodi'); if(!cont) return;
   var id=++_giustRighe, inp='width:100%; padding:6px; border:1px solid #cbd5e1; border-radius:6px; box-sizing:border-box';
@@ -1850,6 +1867,15 @@ function aggiungiGiustificativo(){
     var oreTxt=(document.getElementById('giustOre').value||'').trim();
     if(!oreTxt && TETTI_PERMESSI[tipo]){ alert('Per questo permesso scrivi le ore usate (es. 1:30).'); return; }
     if(oreTxt){ var mo=hmToMin(oreTxt); if(mo===null || mo<=0 || mo>12*60){ alert('Ore non valide. Scrivi per esempio 2:30'); return; } ore=minToHM(mo); }
+  }
+  var dati104=null;
+  if(tipo===TIPO_104){
+    var persona=(document.getElementById('giustPersona').value||'').trim(), parentela=document.getElementById('giustParentela').value, riv=document.getElementById('giustRivedibile').value;
+    if(!parentela){ alert('Legge 104: indica la parentela.'); return; }
+    var stesso=(parentela===PARENTELE_104[0]);
+    if(!persona && !stesso){ alert('Legge 104: indica la persona da assistere (nome e cognome).'); return; }
+    dati104={persona: persona || nome, parentela: parentela};
+    if(riv) dati104.rivedibile=riv;
   }
   var an = anagrafiche.find(function(x){ return x.nome===nome; });
   var giorni = [], visti = {}, descr = [];
@@ -1873,6 +1899,7 @@ function aggiungiGiustificativo(){
     var esiste = giustificativiSalvati.some(function(x){ return x.nome===nome && normData(x.data)===gi; });
     if(esiste){ saltati++; return; }
     var g={nome:nome, data:gi, tipo:tipo, timestamp:base+nuovi.length}; if(ore) g.ore=ore;
+    if(dati104){ g.persona=dati104.persona; g.parentela=dati104.parentela; if(dati104.rivedibile) g.rivedibile=dati104.rivedibile; }
     nuovi.push(g);
   });
   if(!nuovi.length){ alert('Tutti i giorni scelti hanno già un\'assenza registrata per '+nome+'.'); return; }
@@ -1892,6 +1919,7 @@ function aggiungiGiustificativo(){
   salvaGiustLocali(); renderListaGiustificativi();
   nuovi.forEach(function(g){ postaGiust(g); });
   alert('✅ Registrati '+nuovi.length+' giorni di assenza.');
+  if(dati104){ var pp=document.getElementById('giustPersona'); if(pp) pp.value=''; }
 }
 
 function renderListaGiustificativi(){
@@ -1901,15 +1929,15 @@ function renderListaGiustificativi(){
   voci.sort(function(a,b){ return (a.g.nome<b.g.nome?-1:a.g.nome>b.g.nome?1:0) || (a.g.tipo<b.g.tipo?-1:a.g.tipo>b.g.tipo?1:0) || (a.g.ore||'').localeCompare(b.g.ore||'') || (a.ms-b.ms); });
   var gruppi=[], cur=null;
   voci.forEach(function(v){
-    if(cur && cur.nome===v.g.nome && cur.tipo===v.g.tipo && (cur.ore||'')===(v.g.ore||'') && (v.ms-cur.fine)<=3*86400000){ cur.fine=v.ms; cur.ids.push(idGiust(v.g)); }
-    else { cur={nome:v.g.nome, tipo:v.g.tipo, ore:v.g.ore, inizio:v.ms, fine:v.ms, ids:[idGiust(v.g)]}; gruppi.push(cur); }
+    if(cur && cur.nome===v.g.nome && cur.tipo===v.g.tipo && (cur.ore||'')===(v.g.ore||'') && (cur.persona||'')===(v.g.persona||'') && (cur.parentela||'')===(v.g.parentela||'') && (cur.rivedibile||'')===(v.g.rivedibile||'') && (v.ms-cur.fine)<=3*86400000){ cur.fine=v.ms; cur.ids.push(idGiust(v.g)); }
+    else { cur={nome:v.g.nome, tipo:v.g.tipo, ore:v.g.ore, persona:v.g.persona, parentela:v.g.parentela, rivedibile:v.g.rivedibile, inizio:v.ms, fine:v.ms, ids:[idGiust(v.g)]}; gruppi.push(cur); }
   });
   gruppi.sort(function(a,b){ return b.inizio-a.inizio; });
   var html='';
   gruppi.forEach(function(gr){
     var periodo = gr.ids.length>1 ? ('dal '+fmtDataIt(gr.inizio)+' al '+fmtDataIt(gr.fine)+' ('+gr.ids.length+' gg)') : fmtDataIt(gr.inizio);
     html += '<div style="display:flex; justify-content:space-between; align-items:center; gap:6px; background:white; border:1px solid #cbd5e1; padding:6px; border-radius:6px; margin-bottom:4px; font-size:11px">';
-    html += '<div><b>'+esc(gr.nome)+'</b> - <span style="color:#0284c7">'+esc(periodo)+'</span>: <span style="background:#f3e8ff; color:#7e22ce; padding:2px 6px; border-radius:4px; font-weight:700">'+esc(gr.tipo)+(gr.ore?' ('+esc(gr.ore)+')':'')+'</span></div>';
+    html += '<div><b>'+esc(gr.nome)+'</b> - <span style="color:#0284c7">'+esc(periodo)+'</span>: <span style="background:#f3e8ff; color:#7e22ce; padding:2px 6px; border-radius:4px; font-weight:700">'+esc(gr.tipo)+(gr.ore?' ('+esc(gr.ore)+')':'')+'</span>'+(dettaglio104(gr)?'<div style="font-size:10px; color:#9d174d; margin-top:2px">👤 '+esc(dettaglio104(gr))+'</div>':'')+'</div>';
     html += '<button onclick="eliminaGruppoGiustificativi(\''+gr.ids.join(',')+'\')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 8px; font-size:10px; cursor:pointer; flex:none">Elimina</button>';
     html += '</div>';
   });
@@ -1955,7 +1983,7 @@ function stampaAssenze(){
     html+='<div style="font-size:14px; font-weight:800">'+esc(nome)+'</div>';
     if(a){ html+='<div style="font-size:11px; color:#475569">'+esc(a.qualifica||'')+(a.plesso?' - '+esc(a.plesso):'')+'</div>'; }
     html+='<table style="width:100%; border-collapse:collapse; font-size:12px; margin-top:4px"><tr><th style="'+th+'; width:30%">Data</th><th style="'+th+'">Tipo di assenza</th></tr>';
-    lista.forEach(function(g){ html+='<tr><td style="'+td+'">'+esc(normData(g.data))+'</td><td style="'+td+'">'+esc(g.tipo)+(g.ore?' ('+esc(g.ore)+')':'')+'</td></tr>'; });
+    lista.forEach(function(g){ html+='<tr><td style="'+td+'">'+esc(normData(g.data))+'</td><td style="'+td+'">'+esc(g.tipo)+(g.ore?' ('+esc(g.ore)+')':'')+(dettaglio104(g)?'<br><span style="font-size:11px">'+esc(dettaglio104(g))+'</span>':'')+'</td></tr>'; });
     html+='</table>';
     var extra='';
     if(a && a.ferieAPIniziali!=null){ var fu2=ferieAPUsate(nome); extra+='<div style="font-size:11px; margin-top:3px">🌴 Ferie anno prec.: iniziali '+a.ferieAPIniziali+' - usate '+fu2+' = <b>residuo '+(a.ferieAPIniziali-fu2)+' giorni</b></div>'; }
