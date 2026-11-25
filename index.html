@@ -372,6 +372,30 @@ function slotsPerData(a, d){
 function hmToMin(v){ v=String(v||'').trim(); if(!v) return null; if(v.indexOf(':')>=0){ var p=v.split(':'); var h=parseInt(p[0]), m=parseInt(p[1]||0); if(isNaN(h)||isNaN(m)) return null; return h*60+m; } var x=parseFloat(v.replace(',','.')); return isNaN(x)?null:Math.round(x*60); }
 function minToHM(m){ var sg=m<0?'-':''; m=Math.abs(m); return sg+Math.floor(m/60)+':'+('0'+(m%60)).slice(-2); }
 const TIPO_FERIE_AP='Ferie Anno Prec.', TIPO_ORE_ECC='Riposo compensativo (ore eccedenti)';
+// Permessi orari con tetto annuo (anno scolastico 1 settembre - 31 agosto) per dipendente
+const TETTI_PERMESSI={
+  'Permesso orario visita medica':{max:18*60, nome:'visita medica'},
+  'Permesso orario assemblea sindacale':{max:10*60, nome:'assemblea sindacale'}
+};
+function annoScolasticoDi(d){ return d.getMonth()>=8 ? d.getFullYear() : d.getFullYear()-1; }
+function etichettaAnnoScol(anno){ return anno+'/'+String(anno+1).slice(-2); }
+function minPermessoUsati(nome, tipo, anno){
+  var tot=0;
+  giustificativiSalvati.forEach(function(g){
+    if(g.nome!==nome || g.tipo!==tipo) return;
+    var d=dataDaGiust(g); if(!d || annoScolasticoDi(d)!==anno) return;
+    tot+=hmToMin(g.ore)||0;
+  });
+  return tot;
+}
+// ore di permesso orario (visita medica / assemblea) di un dipendente in un giorno: contano come ore lavorate
+function permessoOrarioMin(nome, giornoTxt){
+  var g=normData(giornoTxt), tot=0;
+  giustificativiSalvati.forEach(function(x){
+    if(x.nome===nome && TETTI_PERMESSI[x.tipo] && normData(x.data)===g) tot+=hmToMin(x.ore)||0;
+  });
+  return tot;
+}
 function dataDaGiust(g){ var ms=parseDataIt(normData(g.data)); return ms===null?null:new Date(ms); }
 function ferieAPUsate(nome){ return giustificativiSalvati.filter(function(g){ return g.nome===nome && g.tipo===TIPO_FERIE_AP; }).length; }
 function oreEccUsateMin(a, da, fino){
@@ -406,7 +430,7 @@ function giornoBanca(a, d, conteggiate){
   }
   if(!tg.length) return null;
   var calc=calcolaGiornata(tg, slots, minPrev); if(!calc) return null;
-  var diff=calc.min-minPrev-straordinarioMin(a.nome,gLoc);
+  var diff=calc.min-minPrev-straordinarioMin(a.nome,gLoc)+permessoOrarioMin(a.nome,gLoc);
   var g=giustificativiSalvati.find(function(x){ return x.nome===a.nome && normData(x.data)===gNorm; });
   return {diff:diff, perm:!!(g && g.tipo==='Permesso Orario da recuperare')};
 }
@@ -1141,7 +1165,7 @@ function renderFoglioGiorno(){
   var p=giorno.split('-'), d=new Date(+p[0],+p[1]-1,+p[2]), gIt=giornoIt(giorno);
   var nomeG=['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'][d.getDay()];
   var lista=[], html='<div style="background:#f0fdfa; padding:6px 8px; font-weight:800; font-size:13px; position:sticky; top:0">'+nomeG+' '+esc(gIt)+(plesso!=='TUTTI'?' - '+esc(plesso):'')+'</div>';
-  var optA='<option value="">— nessuna assenza —</option>'+TIPI_ASSENZA.map(function(t){ return '<option value="'+esc(t[0])+'">'+esc(t[1])+'</option>'; }).join('');
+  var optA='<option value="">— nessuna assenza —</option>'+TIPI_ASSENZA.filter(function(t){ return !TETTI_PERMESSI[t[0]]; }).map(function(t){ return '<option value="'+esc(t[0])+'">'+esc(t[1])+'</option>'; }).join('');
   var inT='width:100%; padding:7px 4px; border:1.5px solid #cbd5e1; border-radius:6px; box-sizing:border-box; text-align:center; font-size:14px; min-width:0';
   anagrafiche.slice().sort(function(a,b){ return a.nome<b.nome?-1:1; }).forEach(function(a){
     if(plesso!=='TUTTI' && a.plesso!==plesso) return;
@@ -1706,6 +1730,8 @@ const TIPI_ASSENZA = [
   ['Ferie Anno Prec.','🌴 Ferie Anno Prec.'],
   ['Congedo Parentale','👶 Congedo Parentale'],
   ['Riposo compensativo (ore eccedenti)','⏱️ Riposo compensativo (ore eccedenti)'],
+  ['Permesso orario visita medica','🩺 Permesso orario visita medica (max 18 ore/anno)'],
+  ['Permesso orario assemblea sindacale','🏛️ Permesso orario assemblea sindacale (max 10 ore/anno)'],
   ['Festività Soppresse','🎉 Festività Soppresse (3-4/anno)'],
   ['Malattia','🏥 Malattia'],
   ['Legge 104','🤝 Legge 104'],
@@ -1770,7 +1796,7 @@ function apriGestioneGiustificativi(){
   html += '<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Tipo Assenza / Voce:</label><select id="giustTipo" style="'+inp+'">'+optTipi+'</select>';
   html += '<div style="font-size:11px; font-weight:700; margin-top:8px">Periodi (dal - al):</div><div id="giustPeriodi"></div>';
   html += '<button type="button" onclick="aggiungiPeriodoGiust()" style="background:#e9d5ff; color:#6b21a8; border:0; border-radius:8px; padding:8px; font-weight:800; width:100%; margin-top:6px; cursor:pointer; font-size:12px">➕ Aggiungi un altro periodo</button>';
-  html += '<div style="margin-top:6px"><label style="font-size:11px; font-weight:700; display:block">Ore usate (solo per "Riposo compensativo": es. 2:30. Vuoto = giornata intera)</label><input type="text" id="giustOre" placeholder="es. 2:30" style="'+inp+'"></div>';
+  html += '<div style="margin-top:6px"><label style="font-size:11px; font-weight:700; display:block">Ore usate (es. 1:30). Obbligatorie per Visita medica e Assemblea sindacale; per il Riposo compensativo vuoto = giornata intera</label><input type="text" id="giustOre" placeholder="es. 2:30" style="'+inp+'"></div>';
   html += '<button onclick="aggiungiGiustificativo()" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:10px; font-weight:800; width:100%; margin-top:10px; cursor:pointer">➕ Registra Assenza</button>';
   html += '</div>';
 
@@ -1820,9 +1846,10 @@ function aggiungiGiustificativo(){
   var tipo = document.getElementById('giustTipo').value;
   var righe = document.querySelectorAll('#giustPeriodi .giustRiga');
   var ore = '';
-  if(tipo===TIPO_ORE_ECC){
+  if(tipo===TIPO_ORE_ECC || TETTI_PERMESSI[tipo]){
     var oreTxt=(document.getElementById('giustOre').value||'').trim();
-    if(oreTxt){ var mo=hmToMin(oreTxt); if(mo===null || mo<=0){ alert('Ore non valide. Scrivi per esempio 2:30'); return; } ore=minToHM(mo); }
+    if(!oreTxt && TETTI_PERMESSI[tipo]){ alert('Per questo permesso scrivi le ore usate (es. 1:30).'); return; }
+    if(oreTxt){ var mo=hmToMin(oreTxt); if(mo===null || mo<=0 || mo>12*60){ alert('Ore non valide. Scrivi per esempio 2:30'); return; } ore=minToHM(mo); }
   }
   var an = anagrafiche.find(function(x){ return x.nome===nome; });
   var giorni = [], visti = {}, descr = [];
@@ -1849,6 +1876,17 @@ function aggiungiGiustificativo(){
     nuovi.push(g);
   });
   if(!nuovi.length){ alert('Tutti i giorni scelti hanno già un\'assenza registrata per '+nome+'.'); return; }
+  if(TETTI_PERMESSI[tipo]){
+    var tetto=TETTI_PERMESSI[tipo], perAnno={}, mOre=hmToMin(ore);
+    nuovi.forEach(function(g){ var dg=dataDaGiust(g); var an2=annoScolasticoDi(dg); perAnno[an2]=(perAnno[an2]||0)+mOre; });
+    for(var anno in perAnno){
+      var usate=minPermessoUsati(nome, tipo, +anno), richieste=perAnno[anno];
+      if(usate+richieste>tetto.max){
+        alert('⛔ Permesso NON inserito.\n\nPer il permesso orario '+tetto.nome+' il massimo è '+minToHM(tetto.max)+' ore per anno scolastico ('+etichettaAnnoScol(+anno)+').\nGià usate: '+minToHM(usate)+' - Residuo: '+minToHM(Math.max(0,tetto.max-usate))+' - Richieste ora: '+minToHM(richieste)+'.');
+        return;
+      }
+    }
+  }
   if(!confirm('Registrare '+nuovi.length+' giorni di "'+tipo+'" per '+nome+'?\n\nPeriodi: '+descr.join(' ; ')+'\n(contati solo i giorni di servizio'+(saltati?'; '+saltati+' giorni saltati perché hanno già un\'assenza':'')+')')) return;
   nuovi.forEach(function(g){ giustificativiSalvati.push(g); });
   salvaGiustLocali(); renderListaGiustificativi();
@@ -1923,6 +1961,11 @@ function stampaAssenze(){
     if(a && a.ferieAPIniziali!=null){ var fu2=ferieAPUsate(nome); extra+='<div style="font-size:11px; margin-top:3px">🌴 Ferie anno prec.: iniziali '+a.ferieAPIniziali+' - usate '+fu2+' = <b>residuo '+(a.ferieAPIniziali-fu2)+' giorni</b></div>'; }
     if(a && a.oreEccIniziali!=null){ var ou2=oreEccUsateMin(a); extra+='<div style="font-size:11px; margin-top:3px">⏱️ Ore eccedenti: iniziali '+minToHM(a.oreEccIniziali)+' - usate '+minToHM(ou2)+' = <b>residuo '+minToHM(a.oreEccIniziali-ou2)+'</b></div>'; }
     html+='<div style="font-size:11px; margin-top:4px"><b>Riepilogo:</b> '+Object.keys(riep).map(function(k){ return esc(k)+': '+riep[k]; }).join(' &nbsp;|&nbsp; ')+' &nbsp;|&nbsp; <b>Totale giorni: '+lista.length+'</b></div>';
+    var annoRif=annoScolasticoDi(new Date(dMs));
+    Object.keys(TETTI_PERMESSI).forEach(function(tp){
+      var uu=minPermessoUsati(nome,tp,annoRif);
+      if(uu>0) extra+='<div style="font-size:11px; margin-top:3px">🩺 Permesso orario '+TETTI_PERMESSI[tp].nome+' (anno scol. '+etichettaAnnoScol(annoRif)+'): usate '+minToHM(uu)+' su '+minToHM(TETTI_PERMESSI[tp].max)+' = <b>residuo '+minToHM(Math.max(0,TETTI_PERMESSI[tp].max-uu))+'</b></div>';
+    });
     html+=extra;
     html+='</div>';
   });
@@ -2031,6 +2074,9 @@ function apriSchedaAnagrafica(nome){
   var bk=bancaOre(a, new Date());
   htmlModal+='<div style="margin-top:3px; color:#334155">Ore in più: <b style="color:#16a34a">'+segno(bk.piu)+'</b> &nbsp;|&nbsp; Ore in meno: <b style="color:#dc2626">'+segno(bk.meno)+'</b> &nbsp;|&nbsp; Riposi compensativi: <b style="color:#dc2626">'+segno(-bk.riposo)+'</b></div>';
   htmlModal+='<div style="margin-top:3px; color:#334155">Totale ore eccedenti oggi: <b style="color:'+(bk.totale<0?'#dc2626':'#16a34a')+'">'+segno(bk.totale)+'</b></div>';
+  var annoS=annoScolasticoDi(new Date()), pv=minPermessoUsati(a.nome,'Permesso orario visita medica',annoS), pa=minPermessoUsati(a.nome,'Permesso orario assemblea sindacale',annoS);
+  htmlModal+='<b style="color:#166534; display:block; margin-top:10px">🩺 Permessi orari anno scolastico '+etichettaAnnoScol(annoS)+'</b>';
+  htmlModal+='<div style="margin-top:3px; color:#334155">Visita medica: <b>'+minToHM(pv)+'</b> su 18:00 (residuo <b style="color:#16a34a">'+minToHM(Math.max(0,18*60-pv))+'</b>) &nbsp;|&nbsp; Assemblea sindacale: <b>'+minToHM(pa)+'</b> su 10:00 (residuo <b style="color:#16a34a">'+minToHM(Math.max(0,10*60-pa))+'</b>)</div>';
   htmlModal+='<div style="color:#64748b; margin-top:6px">Ferie e riposi si scalano da soli; le ore in più e i permessi "da recuperare" vengono calcolati dal Resoconto ore.</div></div>';
   htmlModal+='<h4 id="titoloA" style="margin:8px 0 4px 0; color:#1e293b; font-size:13px">'+(Nc>1?'⏰ SETTIMANA 1':'⏰ Orario Settimanale')+'</h4>';
   htmlModal+='<div id="containerGiorniScheda">';
@@ -2441,6 +2487,8 @@ function generaResocontoInterno(){
           var diff = minLavorati - minPrevisti;
           var strMin = straordinarioMin(nome, dataStrFormatted);
           if(strMin > 0){ diff -= strMin; notaCalc += '<div style="font-size:9px; color:#15803d">💶 straordinario pagato: ' + minToHM(strMin) + '</div>'; }
+          var permOr = permessoOrarioMin(nome, dataStrFormatted);
+          if(permOr > 0){ diff += permOr; notaCalc += '<div style="font-size:9px; color:#0369a1">🩺 permesso orario: ' + minToHM(permOr) + '</div>'; }
           
           coloreDiff = diff >= 0 ? '#16a34a' : '#dc2626';
           if(giustificato && giustificato.tipo === 'Permesso Orario da recuperare'){
