@@ -1839,6 +1839,134 @@ function apriGestioneGiustificativi(){
 }
 
 let _giustRighe=0;
+// ===== MODIFICA DI UN'ASSENZA GIA' REGISTRATA (bottone accanto a Elimina) =====
+function isoDaMs(ms){ var d=new Date(ms); return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2); }
+function apriModificaAssenza(idsTxt){
+  var ids=idsTxt.split(',');
+  var grp=giustificativiSalvati.filter(function(x){ return ids.indexOf(idGiust(x))>=0; });
+  if(!grp.length) return;
+  window._modIds=ids;
+  var tempi=grp.map(function(x){ return parseDataIt(normData(x.data)); }).filter(function(x){ return x!==null; }).sort(function(a,b){ return a-b; });
+  var g0=grp[0];
+  var modal=document.getElementById('modalModificaAss');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalModificaAss';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10009; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var inp='width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box';
+  var optTipi=TIPI_ASSENZA.map(function(t){ return '<option value="'+esc(t[0])+'"'+(t[0]===g0.tipo?' selected':'')+'>'+esc(t[1])+'</option>'; }).join('');
+  var optPar='<option value="">-- scegli la parentela --</option>'+PARENTELE_104.map(function(x){ return '<option value="'+esc(x)+'"'+(x===g0.parentela?' selected':'')+'>'+esc(x)+'</option>'; }).join('');
+  var persona=(g0.persona && g0.parentela!==PARENTELE_104[0]) ? g0.persona : (g0.parentela===PARENTELE_104[0] ? '' : (g0.persona||''));
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:14px; width:100%; max-width:520px; max-height:94vh; overflow:auto; border:2.5px solid #0ea5e9">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center"><h3 style="margin:0; color:#0369a1; font-size:16px">✏️ Modifica assenza</h3>'
+    +'<button onclick="chiudiModificaAssenza()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<div style="font-size:13px; margin:8px 0"><b>'+esc(g0.nome)+'</b> - '+grp.length+' giorni registrati</div>'
+    +'<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px"><div><label style="font-size:11px; font-weight:700">Dal:</label><input type="date" id="modDal" value="'+isoDaMs(tempi[0])+'" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px; font-weight:700">Al:</label><input type="date" id="modAl" value="'+isoDaMs(tempi[tempi.length-1])+'" style="'+inp+'"></div></div>'
+    +'<label style="font-size:11px; font-weight:700; display:block; margin-top:8px">Tipo di assenza:</label><select id="modTipo" onchange="modTipoCambia()" style="'+inp+'">'+optTipi+'</select>'
+    +'<div style="margin-top:8px"><label style="font-size:11px; font-weight:700; display:block">Ore usate (es. 1:30) - per Visita medica, Assemblea sindacale e Riposo compensativo</label><input type="text" id="modOre" value="'+esc(g0.ore||'')+'" style="'+inp+'" placeholder="es. 2:30"></div>'
+    +'<div id="modBox104" style="display:none; margin-top:8px; background:#fdf2f8; border:1.5px solid #f9a8d4; border-radius:8px; padding:8px"><div style="font-size:12px; font-weight:800; color:#9d174d">🤝 Legge 104</div>'
+    +'<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Persona da assistere:</label><input type="text" id="modPersona" value="'+esc(persona)+'" style="'+inp+'">'
+    +'<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Parentela:</label><select id="modParentela" style="'+inp+'">'+optPar+'</select>'
+    +'<label style="font-size:11px; font-weight:700; display:block; margin-top:6px">Rivedibile? (facoltativo)</label><select id="modRivedibile" style="'+inp+'"><option value="">-- non indicato --</option><option value="si"'+(g0.rivedibile==='si'?' selected':'')+'>Sì, rivedibile</option><option value="no"'+(g0.rivedibile==='no'?' selected':'')+'>No, non rivedibile</option></select></div>'
+    +'<div id="modBoxMalattia" style="display:none; margin-top:8px; background:#eff6ff; border:1.5px solid #93c5fd; border-radius:8px; padding:8px"><label style="font-size:11px; font-weight:700; display:block">🏥 Numero del certificato medico (facoltativo)</label><input type="text" id="modCertificato" value="'+esc(g0.certificato||'')+'" style="'+inp+'"></div>'
+    +'<div id="modBoxAltro" style="display:none; margin-top:8px; background:#fefce8; border:1.5px solid #fde047; border-radius:8px; padding:8px"><label style="font-size:11px; font-weight:700; display:block">📌 Di quale assenza si tratta:</label><input type="text" id="modAltro" value="'+esc(g0.altro||'')+'" style="'+inp+'"></div>'
+    +'<button onclick="salvaModificaAssenza()" style="margin-top:12px; width:100%; background:#0ea5e9; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer">💾 Salva modifiche</button></div>';
+  modTipoCambia();
+}
+function chiudiModificaAssenza(){ var m=document.getElementById('modalModificaAss'); if(m) m.style.display='none'; }
+function modTipoCambia(){
+  var t=document.getElementById('modTipo'); if(!t) return;
+  var mostra=function(id,on){ var b=document.getElementById(id); if(b) b.style.display = on ? 'block' : 'none'; };
+  mostra('modBox104', t.value===TIPO_104); mostra('modBoxMalattia', t.value==='Malattia'); mostra('modBoxAltro', t.value==='Altro');
+}
+
+async function salvaModificaAssenza(){
+  var ids=window._modIds||[];
+  var grp=giustificativiSalvati.filter(function(x){ return ids.indexOf(idGiust(x))>=0; });
+  if(!grp.length){ chiudiModificaAssenza(); return; }
+  var nome=grp[0].nome, an=anagrafiche.find(function(x){ return x.nome===nome; });
+  var dal=document.getElementById('modDal').value, al=document.getElementById('modAl').value || dal;
+  var tipo=document.getElementById('modTipo').value;
+  if(!dal){ alert('Scegli la data "Dal".'); return; }
+  if(al<dal){ alert('La data "Al" è prima della data "Dal".'); return; }
+  // campi del tipo scelto
+  var ore='';
+  var oreTxt=(document.getElementById('modOre').value||'').trim();
+  if(TETTI_PERMESSI[tipo] && !oreTxt){ alert('Per questo permesso scrivi le ore usate (es. 1:30).'); return; }
+  if((tipo===TIPO_ORE_ECC || TETTI_PERMESSI[tipo]) && oreTxt){ var mo=hmToMin(oreTxt); if(mo===null || mo<=0 || mo>12*60){ alert('Ore non valide. Scrivi per esempio 2:30'); return; } ore=minToHM(mo); }
+  var dati104=null;
+  if(tipo===TIPO_104){
+    var persona=(document.getElementById('modPersona').value||'').trim(), parentela=document.getElementById('modParentela').value, riv=document.getElementById('modRivedibile').value;
+    if(!parentela){ alert('Legge 104: indica la parentela.'); return; }
+    if(!persona && parentela!==PARENTELE_104[0]){ alert('Legge 104: indica la persona da assistere.'); return; }
+    dati104={persona:persona||nome, parentela:parentela}; if(riv) dati104.rivedibile=riv;
+  }
+  var certificato = tipo==='Malattia' ? (document.getElementById('modCertificato').value||'').trim() : '';
+  var altroTxt = '';
+  if(tipo==='Altro'){ altroTxt=(document.getElementById('modAltro').value||'').trim(); if(!altroTxt){ alert('Per "Altro" scrivi di quale assenza si tratta.'); return; } }
+  // nuovi giorni di servizio del periodo
+  var a1=dal.split('-'), a2=al.split('-'), cur=new Date(+a1[0],+a1[1]-1,+a1[2]), fine=new Date(+a2[0],+a2[1]-1,+a2[2]), giorni=[];
+  while(cur<=fine){
+    var gi=('0'+cur.getDate()).slice(-2)+'/'+('0'+(cur.getMonth()+1)).slice(-2)+'/'+cur.getFullYear();
+    if(!an || slotsPerData(an,cur).length) giorni.push(gi);
+    cur.setDate(cur.getDate()+1);
+  }
+  if(!giorni.length){ alert('Nessun giorno di servizio nel periodo scelto.'); return; }
+  var perGiorno={}; grp.forEach(function(x){ perGiorno[normData(x.data)]=x; });
+  var daTenere=[], daCreare=[], daEliminare=[], conflitti=0;
+  giorni.forEach(function(gi){
+    if(perGiorno[gi]) daTenere.push(perGiorno[gi]);
+    else {
+      var altra=giustificativiSalvati.find(function(x){ return x.nome===nome && normData(x.data)===gi; });
+      if(altra) conflitti++; else daCreare.push(gi);
+    }
+  });
+  grp.forEach(function(x){ if(giorni.indexOf(normData(x.data))<0) daEliminare.push(x); });
+  // tetto annuo dei permessi orari (le ore dei giorni modificati non contano doppio)
+  if(TETTI_PERMESSI[tipo]){
+    var tetto=TETTI_PERMESSI[tipo], mOre=hmToMin(ore), perAnno={}, liberate={};
+    var anni=function(gi){ return annoScolasticoDi(new Date(parseDataIt(gi))); };
+    daTenere.forEach(function(x){ var a=anni(normData(x.data)); perAnno[a]=(perAnno[a]||0)+mOre; });
+    daCreare.forEach(function(gi){ var a=anni(gi); perAnno[a]=(perAnno[a]||0)+mOre; });
+    grp.forEach(function(x){ if(x.tipo===tipo){ var a=anni(normData(x.data)); liberate[a]=(liberate[a]||0)+(hmToMin(x.ore)||0); } });
+    for(var anno in perAnno){
+      var usate=minPermessoUsati(nome,tipo,+anno)-(liberate[anno]||0);
+      if(usate+perAnno[anno]>tetto.max){
+        alert('⛔ Modifica NON salvata.\n\nPer il permesso orario '+tetto.nome+' il massimo è '+minToHM(tetto.max)+' ore per anno scolastico ('+etichettaAnnoScol(+anno)+').\nGià usate (senza questa assenza): '+minToHM(usate)+' - Residuo: '+minToHM(Math.max(0,tetto.max-usate))+' - Richieste: '+minToHM(perAnno[anno])+'.');
+        return;
+      }
+    }
+  }
+  if(!confirm('Salvare le modifiche per '+nome+'?\n\nGiorni: '+giorni.length+' ('+giornoIt(dal)+' - '+giornoIt(al)+')\nTipo: '+tipo+(daCreare.length?'\nNuovi giorni aggiunti: '+daCreare.length:'')+(daEliminare.length?'\nGiorni tolti: '+daEliminare.length:'')+(conflitti?'\n('+conflitti+' giorni saltati: hanno già un\'altra assenza)':''))) return;
+  var base=Date.now(), kk=0;
+  var applica=function(g){
+    g.tipo=tipo;
+    if(ore) g.ore=ore; else delete g.ore;
+    if(dati104){ g.persona=dati104.persona; g.parentela=dati104.parentela; if(dati104.rivedibile) g.rivedibile=dati104.rivedibile; else delete g.rivedibile; }
+    else { delete g.persona; delete g.parentela; delete g.rivedibile; }
+    if(certificato) g.certificato=certificato; else delete g.certificato;
+    if(altroTxt) g.altro=altroTxt; else delete g.altro;
+  };
+  daTenere.forEach(applica);
+  var creati=daCreare.map(function(gi){ var g={nome:nome, data:gi, timestamp:base+(kk++)}; applica(g); return g; });
+  creati.forEach(function(g){ giustificativiSalvati.push(g); });
+  giustificativiSalvati=giustificativiSalvati.filter(function(x){ return daEliminare.indexOf(x)<0; });
+  salvaGiustLocali(); renderListaGiustificativi();
+  var ok=true;
+  try{
+    var esiti=await Promise.all(daTenere.map(function(x){ return aggiornaGiustCloud(x); }));
+    if(esiti.some(function(e){ return !e; })) ok=false;
+    creati.forEach(function(g){ postaGiust(g); });
+    var patch={}, n=0; daEliminare.forEach(function(x){ if(x._k){ patch[x._k]=null; n++; } });
+    if(n) await fetchWithFallback("/giustificativi.json",{method:"PATCH", body:JSON.stringify(patch), headers:JSON_H});
+  }catch(e){ ok=false; }
+  chiudiModificaAssenza();
+  alert(ok ? '✅ Assenza modificata.' : '⚠️ Alcune modifiche non sono state salvate nel cloud. Controlla internet e riprova.');
+}
+
 function richiediSbloccoGiust(){
   apriModalPinSicuro("Stampa e elenco assenze", "Inserisci il PIN per stampare le assenze e vedere l'elenco delle assenze registrate:", function(){
     var a=document.getElementById('areaProtettaGiust');
@@ -1994,7 +2122,7 @@ function renderListaGiustificativi(){
     var periodo = gr.ids.length>1 ? ('dal '+fmtDataIt(gr.inizio)+' al '+fmtDataIt(gr.fine)+' ('+gr.ids.length+' gg)') : fmtDataIt(gr.inizio);
     html += '<div style="display:flex; justify-content:space-between; align-items:center; gap:6px; background:white; border:1px solid #cbd5e1; padding:6px; border-radius:6px; margin-bottom:4px; font-size:11px">';
     html += '<div><b>'+esc(gr.nome)+'</b> - <span style="color:#0284c7">'+esc(periodo)+'</span>: <span style="background:#f3e8ff; color:#7e22ce; padding:2px 6px; border-radius:4px; font-weight:700">'+esc(tipoConAltro(gr))+(gr.ore?' ('+esc(gr.ore)+')':'')+'</span>'+(dettaglio104(gr)?'<div style="font-size:10px; color:#9d174d; margin-top:2px">👤 '+esc(dettaglio104(gr))+'</div>':'')+'</div>';
-    html += '<button onclick="eliminaGruppoGiustificativi(\''+gr.ids.join(',')+'\')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 8px; font-size:10px; cursor:pointer; flex:none">Elimina</button>';
+    html += '<div style="display:flex; gap:4px; flex:none"><button onclick="apriModificaAssenza(\''+gr.ids.join(',')+'\')" style="background:#0ea5e9; color:white; border:0; border-radius:4px; padding:4px 8px; font-size:10px; cursor:pointer">Modifica</button><button onclick="eliminaGruppoGiustificativi(\''+gr.ids.join(',')+'\')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 8px; font-size:10px; cursor:pointer">Elimina</button></div>';
     html += '</div>';
   });
   container.innerHTML = html || '<div style="color:#94a3b8; text-align:center; padding:10px">Nessuna assenza registrata</div>';
