@@ -100,7 +100,6 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
   <div><b>📡 GPS</b> <span id="precTop" style="font-size:11px; background:white; padding:2px 6px; border-radius:999px; border:1px solid #cbd5e1">--</span></div>
   <div><span id="badgeStato" class="badge-rosso">GPS NON ATTIVO</span></div>
 </div>
-<div id="vicinoBox" style="font-size:13px; font-weight:800; margin-top:6px">⏳ Clicca Aggiorna GPS e consenti posizione</div>
 <div id="listaDistanze" style="margin-top:6px"></div>
 <div id="coordBox" style="font-size:11px; color:#334155; background:white; padding:6px; border-radius:8px; border:1px solid #e2e8f0; margin-top:6px; text-align:center">Clicca Aggiorna GPS - Serve HTTPS e permesso Posizione</div>
 <div style="text-align:center; margin-top:8px">
@@ -158,7 +157,7 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
   </div>
 </div>
 <div id="log" style="max-height:300px; overflow:auto"></div>
-<div style="margin-top:10px; border-top:2px dashed #f59e0b; padding-top:8px">
+<div id="sezioneNoGps" style="display:none; margin-top:10px; border-top:2px dashed #f59e0b; padding-top:8px">
 <b style="font-size:13px; color:#b45309">📵 Registro timbrature senza GPS (da convalidare)</b>
 <div id="logNoGps" style="max-height:220px; overflow:auto; margin-top:6px"></div>
 </div>
@@ -524,44 +523,60 @@ function aggiornaUIBlocco(){
       if(noGps) noGps.style.display='none';
     } else {
       if(btnE) btnE.disabled=true; if(btnU) btnU.disabled=true;
-      blocco.style.display='block'; ok.style.display='none'; badge.textContent='GPS FUORI'; badge.style.background='#ef4444'; blocco.innerHTML='⛔ Sei FUORI dal plesso o GPS non agganciato - usa "Timbra senza GPS" qui sotto';
-      if(noGps) noGps.style.display='block';
+      blocco.style.display='block'; ok.style.display='none'; badge.textContent='GPS FUORI'; badge.style.background='#ef4444';
+      blocco.innerHTML = precScarsa ? ('⛔ Posizione poco precisa (±'+precScarsa+' m): avvicinati a una finestra o attiva il GPS e tocca "Aggiorna GPS"')
+        : (!last ? '⛔ Posizione non rilevata: attiva il GPS (o il Wi-Fi) del telefono e tocca "Aggiorna GPS"' : '⛔ Non risulti dentro un plesso: puoi timbrare solo entro 150 m da una sede');
+      if(noGps) noGps.style.display='none';
     }
   }
 }
-function avviaWatchGPS(){ 
-  if(!navigator.geolocation) return; 
-  if(watchId) navigator.geolocation.clearWatch(watchId); 
-  watchId=navigator.geolocation.watchPosition(p=>{ 
-    last=p; const lat=p.coords.latitude, lon=p.coords.longitude; 
-    let min=1e9,best=null,chips=''; 
-    PLESSI.forEach(pl=>{
-      const d=dist(lat,lon,pl.lat,pl.lon); const ok=d<=GEOFENCE; 
-      chips+=`<span class=chip-dist style="${ok?'background:#d1fae5; border-color:#16a34a':''}">${pl.n} ${Math.round(d)}m ${ok?'✅':'⛔'}</span>`; 
-      if(d<min){min=d; best=pl;}
-    }); 
-    vicino=best; dentro=min<=GEOFENCE; if(dentro) lastDentroTime=Date.now();
-    document.getElementById('listaDistanze').innerHTML=chips; 
-    aggiornaUIBlocco(); 
-  }, e=>{}, {enableHighAccuracy:true, timeout:30000, maximumAge:2000}); 
+let watchId2=null, ultimoFixBuonoMs=0, precScarsa=0;
+const MAX_PREC=200; // metri: una posizione meno precisa non vale per timbrare
+
+// riceve una posizione (da GPS, o da Wi-Fi/celle quando il GPS non c'e') e decide se sei dentro un plesso
+function onPosizione(p){
+  const acc=p.coords.accuracy||0;
+  const pt=document.getElementById('precTop'); if(pt) pt.textContent='±'+Math.round(acc)+' m';
+  if(acc>MAX_PREC){
+    precScarsa=Math.round(acc);
+    if(Date.now()-ultimoFixBuonoMs>60000){ dentro=false; }
+    document.getElementById('coordBox').innerHTML='⚠️ Posizione poco precisa (±'+precScarsa+' m)';
+    aggiornaUIBlocco(); return;
+  }
+  precScarsa=0; ultimoFixBuonoMs=Date.now();
+  last=p; const lat=p.coords.latitude, lon=p.coords.longitude;
+  let min=1e9,best=null,chips='';
+  PLESSI.forEach(pl=>{
+    const d=dist(lat,lon,pl.lat,pl.lon); const ok=d<=GEOFENCE;
+    chips+=`<span class=chip-dist style="${ok?'background:#d1fae5; border-color:#16a34a':''}">${pl.n} ${Math.round(d)}m ${ok?'✅':'⛔'}</span>`;
+    if(d<min){min=d; best=pl;}
+  });
+  vicino=best; dentro=min<=GEOFENCE; if(dentro) lastDentroTime=Date.now();
+  document.getElementById('listaDistanze').innerHTML=chips;
+  document.getElementById('coordBox').innerHTML=`${lat.toFixed(5)}, ${lon.toFixed(5)} | posizione attiva (±${Math.round(acc)} m)`;
+  aggiornaUIBlocco();
+}
+function erroreGPS(e){
+  const m=(e && e.code===1) ? '❌ Permesso posizione negato: abilitalo nelle impostazioni del browser.' : '❌ Posizione non disponibile: attiva il GPS o il Wi-Fi del telefono.';
+  const cb=document.getElementById('coordBox'); if(cb) cb.innerHTML=m;
+  aggiornaUIBlocco();
 }
 function attivaGPS(){
-  if(!navigator.geolocation) return;
-  navigator.geolocation.getCurrentPosition(p=>{
-    last=p; const lat=p.coords.latitude, lon=p.coords.longitude;
-    let min=1e9,best=null, chips=''; 
-    PLESSI.forEach(pl=>{
-      const d=dist(lat,lon,pl.lat,pl.lon); const ok=d<=GEOFENCE; 
-      chips+=`<span class=chip-dist style="${ok?'background:#d1fae5; border-color:#16a34a':''}">${pl.n} ${Math.round(d)}m ${ok?'✅':'⛔'}</span>`; 
-      if(d<min){min=d; best=pl;}
-    });
-    vicino=best; dentro=min<=GEOFENCE; if(dentro) lastDentroTime=Date.now();
-    document.getElementById('listaDistanze').innerHTML=chips; 
-    document.getElementById('coordBox').innerHTML=`${lat.toFixed(5)}, ${lon.toFixed(5)} | GPS ATTIVO`; 
-    aggiornaUIBlocco();
-    setTimeout(()=>{ try{ avviaWatchGPS(); }catch(e){} }, 800);
-  }, e=>{ document.getElementById('coordBox').innerHTML='❌ GPS non disponibile'; aggiornaUIBlocco(); }, {enableHighAccuracy:true, timeout:30000, maximumAge:0});
+  if(!navigator.geolocation){ alert('Questo dispositivo non permette di rilevare la posizione.'); return; }
+  const ok=function(p){ onPosizione(p); setTimeout(()=>{ try{ avviaWatchGPS(); }catch(e){} }, 800); };
+  navigator.geolocation.getCurrentPosition(ok, function(){
+    // il GPS non risponde: provo con la posizione da rete (Wi-Fi e celle)
+    navigator.geolocation.getCurrentPosition(ok, erroreGPS, {enableHighAccuracy:false, timeout:20000, maximumAge:0});
+  }, {enableHighAccuracy:true, timeout:15000, maximumAge:0});
 }
+function avviaWatchGPS(){
+  if(!navigator.geolocation) return;
+  if(watchId) navigator.geolocation.clearWatch(watchId);
+  if(watchId2) navigator.geolocation.clearWatch(watchId2);
+  watchId=navigator.geolocation.watchPosition(onPosizione, erroreGPS, {enableHighAccuracy:true, timeout:30000, maximumAge:2000});
+  watchId2=navigator.geolocation.watchPosition(onPosizione, function(){}, {enableHighAccuracy:false, timeout:30000, maximumAge:10000});
+}
+setInterval(function(){ if(dentro && Date.now()-ultimoFixBuonoMs>90000){ dentro=false; aggiornaUIBlocco(); } }, 15000);
 
 async function avviaScanner(){
   const reader=document.getElementById('reader'); if(!reader) return;
@@ -611,6 +626,7 @@ function tipoSuccessivo(nome){
 }
 
 function eseguiTimbraturaAutomaticaDaQR(nome){
+  if(!gpsOkPerTimbrare()){ alert('⛔ Per timbrare devi essere dentro un plesso: attiva la posizione del telefono e tocca "Aggiorna GPS".'); return; }
   const a=anagrafiche.find(x=>x.nome===nome); const plesso = vicino ? vicino.n : (a ? a.plesso : 'Pietrobono');
   const tipo = tipoSuccessivo(nome);
   const t=registraTimbratura(nome, tipo, plesso);
@@ -677,6 +693,7 @@ function timbra(tipo){
 
 // ----- Registro a parte (senza GPS) -----
 function timbraNoGps(tipo){
+  alert('La timbratura senza GPS non è disponibile. Se non riesci a timbrare, chiedi alla segreteria di inserire la timbratura.'); return;
   const nome=document.getElementById('dipendente').value;
   const a=anagrafiche.find(x=>x.nome===nome);
   if(!a){ alert('Seleziona prima il tuo nome!'); return; }
@@ -713,6 +730,7 @@ async function caricaNoGps(){
 function aggiornaLogNoGps(){
   try{
     var div=document.getElementById('logNoGps'); if(!div) return;
+    var sez=document.getElementById('sezioneNoGps'); if(sez) sez.style.display = timbratureNoGps.length ? 'block' : 'none';
     var html='';
     timbratureNoGps.slice(0,50).forEach(function(t){
       var id=idTimb(t);
