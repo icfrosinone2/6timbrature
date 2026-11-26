@@ -364,10 +364,16 @@ function schedaSettimana(a, idx){
   if(idx===1 && a.orariSettimanaB) return a.orariSettimanaB;
   return a.orariSettimana;
 }
-function slotsPerData(a, d){
+function slotsPerDataBase(a, d){
   var g=['dom','lun','mar','mer','gio','ven','sab'][d.getDay()];
   var sched=schedaSettimana(a, indiceSettimana(a,d));
   return (sched && sched[g]) ? sched[g] : [];
+}
+// orario del giorno: se c'e' una variazione per quella data vale quella, altrimenti l'orario normale
+function slotsPerData(a, d){
+  var v=variazioneDi(a.nome, d);
+  if(v) return v.libero ? [] : (v.slots || []);
+  return slotsPerDataBase(a, d);
 }
 function hmToMin(v){ v=String(v||'').trim(); if(!v) return null; if(v.indexOf(':')>=0){ var p=v.split(':'); var h=parseInt(p[0]), m=parseInt(p[1]||0); if(isNaN(h)||isNaN(m)) return null; return h*60+m; } var x=parseFloat(v.replace(',','.')); return isNaN(x)?null:Math.round(x*60); }
 function minToHM(m){ var sg=m<0?'-':''; m=Math.abs(m); return sg+Math.floor(m/60)+':'+('0'+(m%60)).slice(-2); }
@@ -486,7 +492,7 @@ function getOrarioPerOggi(a){
   var giorni=['dom','lun','mar','mer','gio','ven','sab'];
   var oggi=giorni[new Date().getDay()];
   var slots = slotsPerData(a, new Date());
-  return {slots: slots, sett: (cicloN(a)>1 ? indiceSettimana(a,new Date())+1 : null), ciclo: cicloN(a)};
+  return {slots: slots, sett: (cicloN(a)>1 ? indiceSettimana(a,new Date())+1 : null), ciclo: cicloN(a), variato: !!variazioneDi(a.nome,new Date())};
 }
 
 let availableCameras=[];
@@ -1286,6 +1292,135 @@ function fgGiornoDopo(){
   var l=document.getElementById('fgLista'); if(l) l.scrollTop=0;
 }
 
+// ===== VARIAZIONI DI ORARIO: orario diverso in un giorno preciso (/variazioni_orario) =====
+let variazioniOrario = JSON.parse(localStorage.getItem('var_orario_v1')||'[]');
+let _varIdx = null;
+function indiceVariazioni(){
+  if(_varIdx) return _varIdx;
+  _varIdx={}; variazioniOrario.forEach(function(v){ _varIdx[v.nome+'|'+v.giorno]=v; });
+  return _varIdx;
+}
+function variazioneDi(nome, d){
+  if(!variazioniOrario.length) return null;
+  var iso=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);
+  return indiceVariazioni()[nome+'|'+iso] || null;
+}
+function salvaVarLocali(){ try{ localStorage.setItem('var_orario_v1', JSON.stringify(variazioniOrario)); }catch(e){} }
+async function caricaVariazioni(){
+  try{
+    let r=await fetchWithFallback("/variazioni_orario.json"); let val=await r.json();
+    let arr=[]; if(val){ Object.keys(val).forEach(function(k){ var v=val[k]; if(v && v.nome && v.giorno){ arr.push(Object.assign({},v,{_k:k})); } }); }
+    variazioniOrario=arr; _varIdx=null; salvaVarLocali();
+    if(document.getElementById('vsLista')) renderVariazioni();
+  }catch(e){}
+}
+function richiediVariazioniOrario(){
+  apriModalPinSicuro("Cambia orario di un giorno", "Inserisci il PIN per cambiare l'orario di servizio in un giorno preciso:", function(){ apriVariazioniOrario(); });
+}
+function apriVariazioniOrario(){
+  var modal=document.getElementById('modalVarOrario');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalVarOrario';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:10005; display:flex; align-items:center; justify-content:center; padding:8px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var o=new Date(), oggi=o.getFullYear()+'-'+('0'+(o.getMonth()+1)).slice(-2)+'-'+('0'+o.getDate()).slice(-2);
+  var plessiU=[]; anagrafiche.forEach(function(a){ if(a.plesso && plessiU.indexOf(a.plesso)<0) plessiU.push(a.plesso); }); plessiU.sort();
+  var optD='<option value="TUTTI">Tutti i dipendenti</option>'+plessiU.map(function(x){ return '<option value="P:'+esc(x)+'">Tutti di '+esc(x)+'</option>'; }).join('')+anagrafiche.map(function(a){ return a.nome; }).sort().map(function(n){ return '<option value="E:'+esc(n)+'">'+esc(n)+'</option>'; }).join('');
+  var inp='width:100%; padding:8px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box';
+  var inT='width:100%; padding:7px 4px; border:1.5px solid #cbd5e1; border-radius:6px; box-sizing:border-box; text-align:center; font-size:14px; min-width:0';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:12px; width:100%; max-width:600px; max-height:96vh; overflow:auto; border:2.5px solid #7c3aed">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center"><h3 style="margin:0; color:#6d28d9; font-size:16px">🕒 Cambia l\'orario di un giorno</h3>'
+    +'<button onclick="chiudiVariazioniOrario()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<div style="font-size:11px; color:#475569; margin:6px 0">L\'orario normale resta com\'è: qui cambi solo i giorni che scegli. Il Resoconto ore, le presenze manuali e la riga "Oggi" useranno l\'orario nuovo.</div>'
+    +'<label style="font-size:11px; font-weight:700">Per chi:</label><select id="vsDip" style="'+inp+'">'+optD+'</select>'
+    +'<div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px"><div><label style="font-size:11px; font-weight:700">Dal giorno:</label><input type="date" id="vsDal" value="'+oggi+'" style="'+inp+'"></div>'
+    +'<div><label style="font-size:11px; font-weight:700">Al giorno:</label><input type="date" id="vsAl" value="'+oggi+'" style="'+inp+'"></div></div>'
+    +'<div style="font-size:10px; color:#64748b; margin-top:3px">Con più giorni vale solo per i giorni in cui di solito lavorano; con un giorno solo vale sempre (anche per aggiungere un giorno di servizio).</div>'
+    +'<label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-top:8px"><input type="checkbox" id="vsLibero" style="width:20px; height:20px"> Giorno libero / non in servizio</label>'
+    +'<div style="display:grid; grid-template-columns:70px 1fr 14px 1fr; gap:4px; align-items:center; margin-top:8px; font-size:11px">'
+    +'<span style="color:#64748b">Mattina</span><input id="vsE1" inputmode="numeric" maxlength="5" placeholder="entrata" onblur="fgNorm(this)" style="'+inT+'"><span>→</span><input id="vsU1" inputmode="numeric" maxlength="5" placeholder="uscita" onblur="fgNorm(this)" style="'+inT+'">'
+    +'<span style="color:#64748b">Pomeriggio</span><input id="vsE2" inputmode="numeric" maxlength="5" placeholder="entrata" onblur="fgNorm(this)" style="'+inT+'"><span>→</span><input id="vsU2" inputmode="numeric" maxlength="5" placeholder="uscita" onblur="fgNorm(this)" style="'+inT+'"></div>'
+    +'<label style="font-size:11px; font-weight:700; display:block; margin-top:8px">Nota (facoltativa):</label><input type="text" id="vsNota" style="'+inp+'" placeholder="es. riunione pomeridiana, chiusura anticipata...">'
+    +'<button onclick="salvaVariazioneOrario()" style="margin-top:10px; width:100%; background:#7c3aed; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer">💾 Salva orario del giorno</button>'
+    +'<div style="margin-top:14px; font-weight:800; font-size:13px">Giorni con orario variato</div><div id="vsLista" style="margin-top:6px; max-height:240px; overflow:auto"></div></div>';
+  renderVariazioni(); caricaVariazioni();
+}
+function chiudiVariazioniOrario(){ var m=document.getElementById('modalVarOrario'); if(m) m.style.display='none'; }
+
+async function salvaVariazioneOrario(){
+  var dip=document.getElementById('vsDip').value, dal=document.getElementById('vsDal').value, al=document.getElementById('vsAl').value||dal;
+  var libero=document.getElementById('vsLibero').checked, nota=(document.getElementById('vsNota').value||'').trim();
+  if(!dal){ alert('Scegli il giorno.'); return; }
+  if(al<dal){ alert('La data "Al" è prima della data "Dal".'); return; }
+  var v=['vsE1','vsU1','vsE2','vsU2'].map(function(k){ return normOra(document.getElementById(k).value); });
+  if(v.some(function(x){ return x===null; })){ alert('Controlla gli orari: scrivi per esempio 730 e 1442.'); return; }
+  var slots=[];
+  if(!libero){
+    if(v[0]||v[1]){ if(!v[0]||!v[1]){ alert('Mattina: scrivi sia entrata sia uscita.'); return; } slots.push({entrata:v[0],uscita:v[1]}); }
+    if(v[2]||v[3]){ if(!v[2]||!v[3]){ alert('Pomeriggio: scrivi sia entrata sia uscita.'); return; } slots.push({entrata:v[2],uscita:v[3]}); }
+    if(!slots.length){ alert('Scrivi gli orari del giorno, oppure spunta "Giorno libero".'); return; }
+    var prec=-1, okOrd=true; slots.forEach(function(sl){ var e=timeToMinutes(sl.entrata), u=timeToMinutes(sl.uscita); if(u<=e||e<prec) okOrd=false; prec=u; });
+    if(!okOrd){ alert("L'uscita deve essere dopo l'entrata."); return; }
+  }
+  var persone=anagrafiche.filter(function(a){
+    if(dip==='TUTTI') return true;
+    if(dip.indexOf('P:')===0) return a.plesso===dip.slice(2);
+    return a.nome===dip.slice(2);
+  });
+  var a1=dal.split('-'), a2=al.split('-'), cur=new Date(+a1[0],+a1[1]-1,+a1[2]), fine=new Date(+a2[0],+a2[1]-1,+a2[2]);
+  var unSoloGiorno=(dal===al), patch={}, n=0;
+  while(cur<=fine){
+    var iso=cur.getFullYear()+'-'+('0'+(cur.getMonth()+1)).slice(-2)+'-'+('0'+cur.getDate()).slice(-2);
+    persone.forEach(function(a){
+      if(!unSoloGiorno && (!slotsPerDataBase(a,cur).length || !inServizio(a,cur))) return;
+      var rec={nome:a.nome, giorno:iso}; if(libero) rec.libero=true; else rec.slots=slots; if(nota) rec.nota=nota;
+      patch[chiaveMan(a.nome,iso)]=rec; n++;
+    });
+    cur.setDate(cur.getDate()+1);
+  }
+  if(!n){ alert('Nessun giorno da cambiare con queste scelte.'); return; }
+  var descr=libero?'giorno libero':slots.map(function(sl){ return sl.entrata+'-'+sl.uscita; }).join(' / ');
+  if(!confirm('Impostare "'+descr+'" per '+n+' giorni-dipendente ('+giornoIt(dal)+(unSoloGiorno?'':' - '+giornoIt(al))+')?')) return;
+  try{
+    var k=Object.keys(patch);
+    for(var i=0;i<k.length;i+=300){ var b={}; k.slice(i,i+300).forEach(function(x){ b[x]=patch[x]; }); await fetchWithFallback("/variazioni_orario.json",{method:"PATCH", body:JSON.stringify(b), headers:JSON_H}); }
+    await caricaVariazioni();
+    try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
+    try{ onDipendenteSelezionato(); }catch(e){}
+    alert('✅ Orario del giorno salvato ('+n+').');
+  }catch(e){ alert('Errore: orario non salvato. Controlla internet e riprova.'); }
+}
+
+function renderVariazioni(){
+  var div=document.getElementById('vsLista'); if(!div) return;
+  var gruppi={};
+  variazioniOrario.forEach(function(v){
+    var firma=v.giorno+'|'+(v.libero?'libero':(v.slots||[]).map(function(sl){ return sl.entrata+'-'+sl.uscita; }).join('/'))+'|'+(v.nota||'');
+    (gruppi[firma]=gruppi[firma]||[]).push(v);
+  });
+  var chiavi=Object.keys(gruppi).sort().reverse(), html='';
+  chiavi.slice(0,80).forEach(function(c){
+    var lst=gruppi[c], v=lst[0];
+    var orario=v.libero?'giorno libero':(v.slots||[]).map(function(sl){ return esc(sl.entrata)+'-'+esc(sl.uscita); }).join(' / ');
+    var nomi=lst.length<=3 ? lst.map(function(x){ return esc(x.nome); }).join(', ') : lst.length+' dipendenti';
+    html+='<div style="display:flex; justify-content:space-between; align-items:center; gap:6px; background:white; border:1px solid #cbd5e1; padding:6px; border-radius:6px; margin-bottom:4px; font-size:11px"><div><b>'+esc(giornoIt(v.giorno))+'</b> - <span style="color:#6d28d9; font-weight:700">'+orario+'</span><br>'+nomi+(v.nota?' <span style="color:#64748b">('+esc(v.nota)+')</span>':'')+'</div>'
+      +'<button onclick="eliminaVariazioni(\''+lst.map(function(x){ return x._k; }).join(',')+'\')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 8px; font-size:10px; cursor:pointer; flex:none">Elimina</button></div>';
+  });
+  div.innerHTML=html || '<div style="color:#94a3b8; text-align:center; padding:10px; font-size:12px">Nessun orario variato</div>';
+}
+async function eliminaVariazioni(chiaviTxt){
+  var ks=chiaviTxt.split(',');
+  if(!confirm('Eliminare questa variazione ('+ks.length+' dipendenti/giorni)? Tornerà valido l\'orario normale.')) return;
+  try{
+    var p={}; ks.forEach(function(k){ p[k]=null; });
+    await fetchWithFallback("/variazioni_orario.json",{method:"PATCH", body:JSON.stringify(p), headers:JSON_H});
+    variazioniOrario=variazioniOrario.filter(function(v){ return ks.indexOf(v._k)<0; }); _varIdx=null; salvaVarLocali(); renderVariazioni();
+    try{ var ris=document.getElementById('risultatoResoconto'); if(ris && ris.innerHTML) generaResocontoInterno(); }catch(e){}
+  }catch(e){ alert('Errore: non riesco a eliminare. Riprova.'); }
+}
+
 function richiediPresenzeManuali(){
   apriModalPinSicuro("Presenze manuali", "Inserisci il PIN per aprire l'inserimento manuale delle presenze:", function(){ apriPresenzeManuali(); });
 }
@@ -1450,7 +1585,7 @@ function eliminaPresenzaManualeDaResoconto(k){
 
 // ----- Azzera tutto / data di partenza -----
 // ===== Copia di sicurezza e ripristino =====
-const NODI_BACKUP=['anagrafica','timbrature','timbrature_nogps','giustificativi','presenze_manuali','straordinari','bacheca','bacheca_letture','config'];
+const NODI_BACKUP=['anagrafica','timbrature','timbrature_nogps','giustificativi','presenze_manuali','straordinari','variazioni_orario','bacheca','bacheca_letture','config'];
 function contaNodo(x){ return x ? Object.keys(x).length : 0; }
 function riepilogoDati(d){
   return contaNodo(d.anagrafica)+' dipendenti, '+contaNodo(d.timbrature)+' timbrature, '+contaNodo(d.timbrature_nogps)+' senza GPS, '+contaNodo(d.giustificativi)+' assenze, '+contaNodo(d.presenze_manuali)+' presenze manuali, '+contaNodo(d.straordinari)+' straordinari, '+contaNodo(d.bacheca)+' avvisi';
@@ -2505,7 +2640,7 @@ function mostraOrario(){
     var txt = '';
     for(var i=0;i<slots.length;i++){ txt += '['+slots[i].entrata+'-'+slots[i].uscita+'] '; }
     let servInfo = (a.periodiServizio && a.periodiServizio.length > 0 && a.periodiServizio[0].dal) ? ` | Servizio: ${a.periodiServizio[0].dal} → ${a.periodiServizio[0].al||'?'}` : '';
-    box.innerHTML='Oggi ('+giorniMap[oggi]+'): '+txt + servInfo + (info.sett ? ' | Settimana '+info.sett+' di '+info.ciclo : '');
+    box.innerHTML='Oggi ('+giorniMap[oggi]+'): '+txt + servInfo + (info.sett ? ' | Settimana '+info.sett+' di '+info.ciclo : '') + (info.variato ? ' | 🕒 orario variato oggi' : '');
   }
 }
 
@@ -2570,13 +2705,14 @@ function generaResocontoDareAvere(){
     htmlModal+='<button onclick="apriTimbraturaDimenticata()" style="width:100%; margin-top:8px; background:#f59e0b; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">➕ Aggiungi timbratura dimenticata</button>';
     htmlModal+='<button onclick="richiediStraordinari()" style="width:100%; margin-top:8px; background:#16a34a; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">💶 Straordinario a pagamento (PIN)</button>';
     htmlModal+='<button onclick="richiediFoglioGiorno()" style="width:100%; margin-top:8px; background:#0d9488; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">🗓️ Presenze del giorno (inserisci per data)</button>';
+    htmlModal+='<button onclick="richiediVariazioniOrario()" style="width:100%; margin-top:8px; background:#7c3aed; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">🕒 Cambia l\'orario di un giorno (PIN)</button>';
     htmlModal+='<button onclick="richiediPresenzeManuali()" style="width:100%; margin-top:8px; background:#0d9488; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">✍️ Inserisci presenze manuali (PIN)</button>';
     htmlModal+='<button onclick="apriCancellaTimbrature()" style="width:100%; margin-top:8px; background:#dc2626; color:white; border:0; padding:12px; border-radius:8px; font-weight:800; cursor:pointer">🗑️ Cancella timbrature (tutte o a scelta)</button>';
 
     htmlModal+='<div id="risultatoResoconto" style="margin-top:20px"></div></div>';
     modal.innerHTML=htmlModal;
     window._timbraturePerResoconto = timbratureConteggiate().slice();
-    caricaPresenzeManuali(); caricaStraordinari();
+    caricaPresenzeManuali(); caricaStraordinari(); caricaVariazioni();
   }catch(e){}
 }
 
@@ -2690,6 +2826,7 @@ function generaResocontoInterno(){
         }
         var minLavorati = 0;
         var notaCalc = '';
+        if(variazioneDi(nome, curr)) notaCalc += '<div style="font-size:9px; color:#7c3aed">🕒 orario variato</div>';
         var statoStr = '';
         var coloreDiff = '#16a34a';
         
@@ -3115,14 +3252,14 @@ function confermaPinSicuro(){
   }
 }
 
-setInterval(()=>{ caricaPresenzeManuali(); caricaStraordinari(); }, 30000);
+setInterval(()=>{ caricaPresenzeManuali(); caricaStraordinari(); caricaVariazioni(); }, 30000);
 setInterval(()=>{ caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); caricaConfig(); }, 3000);
 
 window.addEventListener('load', ()=>{ 
   renderPlessiUI();
   try{ caricaAnagraficaCloud(); }catch(e){}
   try{ aggiornaLog(); }catch(e){}
-  setTimeout(()=>{ try{ caricaPresenzeManuali(); caricaStraordinari(); caricaConfig(); caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); aggiornaLogNoGps(); }catch(e){} }, 500);
+  setTimeout(()=>{ try{ caricaPresenzeManuali(); caricaStraordinari(); caricaVariazioni(); caricaConfig(); caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); aggiornaLogNoGps(); }catch(e){} }, 500);
   try{ attivaGPS(); }catch(e){}
   setTimeout(()=>{ try{ attivaGPS(); avviaWatchGPS(); }catch(e){} }, 1000);
 });
