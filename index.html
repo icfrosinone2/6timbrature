@@ -88,23 +88,24 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
 <div class="left-plessi">
 <b>📍 6 Plessi</b>
 <div id="gridPlessi" class="grid-plessi"></div>
-<div style="margin-top:10px; padding:8px; background:#f0fdf4; border:2.5px dashed #16a34a; border-radius:10px; text-align:center">
-<b>🏠 Casa Test</b><br>
+<div id="boxCasaTest" style="display:none; margin-top:10px; padding:8px; background:#f0fdf4; border:2.5px dashed #16a34a; border-radius:10px; text-align:center">
+<b>🏠 Casa Test</b> <span style="font-size:10px; color:#16a34a">(modalità prova)</span><br>
 <button onclick="aggiungiCasaDaGPS()" style="background:#16a34a; color:white; border:0; border-radius:8px; padding:6px 12px; font-weight:800; margin:4px">📍 Usa mia posizione come Casa</button>
 <button onclick="rimuoviCasa()" id="btnRimuoviCasa" style="display:none; background:#ef4444; color:white; border:0; border-radius:8px; padding:6px 12px; font-weight:800; margin:4px">❌ Rimuovi Casa</button>
 <div id="casaStatus" style="font-size:11px; margin-top:4px"></div>
 </div>
+<div style="text-align:left; margin-top:6px"><span onclick="richiediModoProva()" title="Modalità prova" style="font-size:13px; color:#cbd5e1; cursor:pointer">🔧</span></div>
 </div>
 <div class="right-gps">
 <div style="display:flex; justify-content:space-between; align-items:center">
   <div><b>📡 GPS</b> <span id="precTop" style="font-size:11px; background:white; padding:2px 6px; border-radius:999px; border:1px solid #cbd5e1">--</span></div>
   <div><span id="badgeStato" class="badge-rosso">GPS NON ATTIVO</span></div>
 </div>
-<div id="listaDistanze" style="margin-top:6px"></div>
-<div id="coordBox" style="font-size:11px; color:#334155; background:white; padding:6px; border-radius:8px; border:1px solid #e2e8f0; margin-top:6px; text-align:center">Clicca Aggiorna GPS - Serve HTTPS e permesso Posizione</div>
 <div style="text-align:center; margin-top:8px">
 <button onclick="attivaGPS()" style="background:#0ea5e9; color:white; border:0; border-radius:8px; padding:10px 18px; font-weight:800; font-size:13px">📍 Clicca Aggiorna GPS e consenti posizione</button>
 </div>
+<div id="listaDistanze" style="margin-top:6px"></div>
+<div id="coordBox" style="font-size:11px; color:#334155; background:white; padding:6px; border-radius:8px; border:1px solid #e2e8f0; margin-top:6px; text-align:center">Clicca Aggiorna GPS - Serve HTTPS e permesso Posizione</div>
 </div>
 </div>
 
@@ -313,7 +314,25 @@ PLESSI_BASE=[
 const GEOFENCE=150; 
 let PLESSI=[...PLESSI_BASE];
 let customPlesso=JSON.parse(localStorage.getItem('plesso_casa_v94')||'null');
-if(customPlesso){ PLESSI=[...PLESSI_BASE, customPlesso]; }
+function modoProvaAttivo(){ try{ return localStorage.getItem('modo_prova_v1')==='1'; }catch(e){ return false; } }
+if(customPlesso && modoProvaAttivo()){ PLESSI=[...PLESSI_BASE, customPlesso]; }
+// Modalita' prova: mostra "Casa Test" e la usa come plesso. Di norma e' nascosta e NON attiva.
+function applicaModoProva(){
+  var on=modoProvaAttivo();
+  PLESSI = (on && customPlesso) ? [...PLESSI_BASE, customPlesso] : [...PLESSI_BASE];
+  var box=document.getElementById('boxCasaTest'); if(box) box.style.display = on ? 'block' : 'none';
+  try{ renderPlessiUI(); }catch(e){}
+}
+function richiediModoProva(){
+  var on=modoProvaAttivo();
+  apriModalPinSicuro(on ? "Disattiva modalità prova" : "Attiva modalità prova", "Inserisci il PIN per "+(on ? "nascondere" : "mostrare")+" Casa Test:", function(){
+    try{ localStorage.setItem('modo_prova_v1', on ? '0' : '1'); }catch(e){}
+    applicaModoProva();
+    try{ attivaGPS(); }catch(e){}
+    alert(on ? 'Modalità prova disattivata: Casa Test è nascosta e non vale per timbrare.' : 'Modalità prova attiva su questo dispositivo: ora vedi Casa Test.');
+  });
+}
+
 function aggiungiCasaDaGPS(){ if(!last){ alert('Aspetta GPS'); return; } customPlesso={n:'Casa Test', lat:last.coords.latitude, lon:last.coords.longitude, cls:'casa', maps:`https://maps.google.com/?q=${last.coords.latitude},${last.coords.longitude}`, icon:'🏠', isCasa:true}; localStorage.setItem('plesso_casa_v94', JSON.stringify(customPlesso)); PLESSI=[...PLESSI_BASE, customPlesso]; renderPlessiUI(); attivaGPS(); }
 function rimuoviCasa(){ localStorage.removeItem('plesso_casa_v94'); customPlesso=null; PLESSI=[...PLESSI_BASE]; renderPlessiUI(); attivaGPS(); }
 function dist(a,b,c,d){const R=6371e3,toRad=x=>x*Math.PI/180,dLat=toRad(c-a),dLon=toRad(d-b),aa=Math.sin(dLat/2)**2+Math.cos(toRad(a))*Math.cos(toRad(c))*Math.sin(dLon/2)**2;return R*2*Math.atan2(Math.sqrt(aa),Math.sqrt(1-aa));}
@@ -3273,7 +3292,8 @@ function confermaPinSicuro(){
 setInterval(()=>{ caricaPresenzeManuali(); caricaStraordinari(); caricaVariazioni(); }, 30000);
 setInterval(()=>{ caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); caricaConfig(); }, 3000);
 
-window.addEventListener('load', ()=>{ 
+try{ applicaModoProva(); }catch(e){}
+window.addEventListener('load', ()=>{ try{ applicaModoProva(); }catch(e){} 
   renderPlessiUI();
   try{ caricaAnagraficaCloud(); }catch(e){}
   try{ aggiornaLog(); }catch(e){}
