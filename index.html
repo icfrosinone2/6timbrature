@@ -349,14 +349,26 @@ const DB_URLS = [
 ];
 let DB_URL = DB_URLS[0];
 
+let ultimoErroreRete='';
 async function fetchWithFallback(path, options){
+  const metodo = options && options.method;
   for(let base of DB_URLS){
     try{
-      const r = await fetch(base + path + (options?.method ? "" : "?ts="+Date.now()), Object.assign({cache:"no-store"}, options));
+      const r = await fetch(base + path + (metodo ? "" : "?ts="+Date.now()), Object.assign({cache:"no-store"}, options));
       if(r.ok){ DB_URL = base; return r; }
-    }catch(e){}
+      ultimoErroreRete = 'codice '+r.status;
+    }catch(e){ ultimoErroreRete = 'rete bloccata'; }
+    // alcune reti o dispositivi bloccano DELETE/PUT/PATCH: riprovo come POST con "method override" (lo supporta Firebase)
+    if(metodo && ['DELETE','PUT','PATCH'].indexOf(metodo) >= 0){
+      try{
+        const sep = path.indexOf('?') >= 0 ? '&' : '?';
+        const r2 = await fetch(base + path + sep + "x-http-method-override=" + metodo, Object.assign({cache:"no-store"}, options, {method:"POST"}));
+        if(r2.ok){ DB_URL = base; return r2; }
+        ultimoErroreRete = 'codice '+r2.status+' (metodo alternativo)';
+      }catch(e){ ultimoErroreRete = 'rete bloccata (metodo alternativo)'; }
+    }
   }
-  throw new Error("Impossibile connettersi al database Cloud");
+  throw new Error("Impossibile connettersi al database Cloud ("+ultimoErroreRete+")");
 }
 
 // ===== Orario a rotazione su piu' settimane (da 1 a 6) =====
@@ -705,6 +717,7 @@ function timbra(tipo){
   if(!gpsOkPerTimbrare()){ alert('⛔ GPS non agganciato o sei fuori dal plesso (150m). Usa i pulsanti "senza GPS" (registro a parte).'); return; }
   const sel=document.getElementById('dipendente'); const nome=sel.value; if(!nome){ alert('Seleziona nome!'); return; }
   const a=anagrafiche.find(x=>x.nome===nome); const plesso = vicino ? vicino.n : (a ? a.plesso : 'Pietrobono');
+  if(!confirm('⚠️ CONFERMA IL TUO NOME\n\nStai timbrando '+tipo+' per:\n\n'+nome+(a && a.qualifica ? '\n('+a.qualifica+')' : '')+'\n\nSei proprio tu? Premi OK solo se questo è il TUO nome, altrimenti Annulla e scegli quello giusto.')) return;
   const t=registraTimbratura(nome, tipo, plesso);
   document.getElementById('ultimoScansionato').innerHTML=`✅ ${tipo} ${nome} @ ${plesso} ${t.ora}`;
   beep(); alert(`✅ ${tipo} registrata: ${nome} @ ${plesso}`);
@@ -849,7 +862,7 @@ async function eliminaTimbraturaObj(t){
     if(t._k){ await fetchWithFallback("/timbrature/"+t._k+".json",{method:"DELETE"}); }
     timbratureSalvate=timbratureSalvate.filter(function(x){ return x!==t && !(t._k && x._k===t._k); });
     salvaTimbLocali(); aggiornaLog();
-  }catch(e){ t._del=false; alert("Errore: non riesco a eliminare dal cloud. Riprova."); }
+  }catch(e){ t._del=false; alert("Errore: non riesco a eliminare dal cloud ("+(ultimoErroreRete||'rete')+"). Riprova."); }
 }
 
 // ----- Cancellazione timbrature a scelta (tutte oppure selezionate) -----
@@ -950,7 +963,7 @@ async function eseguiCancellaSelezionate(ids){
     alert("✅ Eliminate "+(tl.length+nl.length+ml.length)+" voci.");
   }catch(e){
     tl.concat(nl).forEach(function(t){ t._del=false; });
-    alert("Errore: non riesco a eliminare dal cloud. Riprova.");
+    alert("Errore: non riesco a eliminare dal cloud ("+(ultimoErroreRete||'rete')+"). Riprova.");
   }
 }
 
