@@ -176,6 +176,7 @@ body{font-family:system-ui; background:#eef2f7; margin:0; padding:8px}
 <div style="display:flex; flex-direction:column; gap:6px; margin-bottom:8px">
   <button onclick="apriModalNuovoDipendente()" style="background:#16a34a; color:white; border:0; border-radius:8px; padding:8px 12px; font-weight:800; font-size:12px">➕ Aggiungi Nuovo Dipendente</button>
   <button onclick="apriGestioneGiustificativi()" style="background:#8b5cf6; color:white; border:0; border-radius:8px; padding:8px 12px; font-weight:800; font-size:12px">📝 Gestisci Giustificativi Assenze</button>
+  <button onclick="apriCambiaPin()" style="background:#f59e0b; color:white; border:0; border-radius:8px; padding:8px 12px; font-weight:800; font-size:12px">🔑 Cambia PIN amministratore</button>
 </div>
 <div id="tabellaOrari" style="margin-top:8px"></div>
 </div>
@@ -2694,9 +2695,9 @@ function mostraOrario(){
   }
 }
 
-function sbloccaAnag(){ 
+async function sbloccaAnag(){ 
   var pin=(document.getElementById('pinAnag').value||'').trim(); 
-  if(pin!=='211285'){ alert('PIN errato!'); return; } 
+  if(!(await pinCorretto(pin))){ alert('PIN errato!'); return; } 
   document.getElementById('areaAnag').style.display='block'; 
   render();
   alert('✅ Anagrafica SBLOCCATA!');
@@ -3041,7 +3042,7 @@ async function caricaBacheca(){
       let keys = Object.keys(val);
       let arr = [];
       keys.forEach(k => {
-        if(val[k] && val[k].testo){
+        if(val[k] && (val[k].testo || val[k].titolo)){
           arr.push({firebaseKey: k, ...val[k]});
         }
       });
@@ -3049,7 +3050,8 @@ async function caricaBacheca(){
       bachecaMessaggi = arr;
       let letti = getLetti();
       if(letti===null){ letti = arr.map(m => m.firebaseKey); salvaLetti(letti); }
-      let nuovi = arr.filter(m => letti.indexOf(m.firebaseKey) < 0).length;
+      const viewer = (document.getElementById('dipendente') || {}).value || '';
+      let nuovi = arr.filter(m => letti.indexOf(m.firebaseKey) < 0 && avvisoPerMe(m, viewer)).length;
       let html = '';
       if(nuovi > 0){
         html += '<div onclick="segnaBachecaLetta()" class="avviso-nuovo">🔔 NUOVA COMUNICAZIONE' + (nuovi>1 ? ' ('+nuovi+')' : '') + ' - tocca l\'avviso per leggerlo (qui per segnare tutte come lette)</div>';
@@ -3059,7 +3061,9 @@ async function caricaBacheca(){
       document.title = (nuovi>0 ? '🔔 ' : '') + 'IC Frosinone 2 - Timbrature';
       bachecaMessaggi.forEach((m) => {
         let fk = m.firebaseKey;
-        html += `<div onclick="apriAvviso('${fk}')" style="cursor:pointer; background:#fffbeb; border-left:3px solid #f59e0b; padding:6px 8px; margin-bottom:6px; border-radius:6px; display:flex; justify-content:space-between; align-items:flex-start; gap:6px"><div style="flex:1"><div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8"><b>${esc(m.autore || 'Segreteria')}</b><span>${m.data || ''}</span></div><div style="font-weight:700; color:#1e293b; margin-top:2px">${letti.indexOf(fk) < 0 ? '<span style="background:#ef4444; color:white; border-radius:4px; padding:1px 5px; font-size:9px; font-weight:800; margin-right:4px">NUOVO</span>' : ''}${esc(m.titolo || 'Avviso')}</div><div style="font-size:11px; color:#475569">${esc((m.testo||'').length>110 ? (m.testo||'').slice(0,110)+'…' : (m.testo||''))}</div><div style="font-size:10px; color:#0369a1; font-weight:700; margin-top:2px">${m.allegato ? '📎 '+esc(m.allegato.nome)+' - ' : ''}👆 tocca per aprire</div></div><button onclick="event.stopPropagation(); richiediEliminaAvviso('${fk}')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 6px; font-size:10px; font-weight:800; cursor:pointer">Del (PIN)</button></div>`;
+        const perMe = avvisoPerMe(m, viewer);
+        const lblDest = m.destinatari ? `<div style="font-size:10px; color:#92400e; font-weight:700">👥 Per: ${esc(descrizioneDestinatari(m))}${perMe ? '' : ' (non è per te)'}</div>` : '';
+        html += `<div onclick="apriAvviso('${fk}')" style="opacity:${perMe ? 1 : 0.55}; cursor:pointer; background:#fffbeb; border-left:3px solid #f59e0b; padding:6px 8px; margin-bottom:6px; border-radius:6px; display:flex; justify-content:space-between; align-items:flex-start; gap:6px"><div style="flex:1">${lblDest}<div style="display:flex; justify-content:space-between; font-size:10px; color:#94a3b8"><b>${esc(m.autore || 'Segreteria')}</b><span>${m.data || ''}</span></div><div style="font-weight:700; color:#1e293b; margin-top:2px">${letti.indexOf(fk) < 0 ? '<span style="background:#ef4444; color:white; border-radius:4px; padding:1px 5px; font-size:9px; font-weight:800; margin-right:4px">NUOVO</span>' : ''}${esc(m.titolo || 'Avviso')}</div><div style="font-size:11px; color:#475569">${esc((m.testo||'').length>110 ? (m.testo||'').slice(0,110)+'…' : (m.testo||''))}</div><div style="font-size:10px; color:#0369a1; font-weight:700; margin-top:2px">${m.allegato ? '📎 '+esc(m.allegato.nome)+' - ' : ''}👆 tocca per aprire</div></div><button onclick="event.stopPropagation(); richiediEliminaAvviso('${fk}')" style="background:#ef4444; color:white; border:0; border-radius:4px; padding:4px 6px; font-size:10px; font-weight:800; cursor:pointer">Del (PIN)</button></div>`;
       });
       bachecaDiv.innerHTML = html || '<div style="color:#94a3b8; text-align:center">Nessun avviso</div>';
     } else { bachecaDiv.innerHTML = '<div style="color:#94a3b8; text-align:center">Nessun avviso</div>'; }
@@ -3087,6 +3091,36 @@ function riduciImmagine(file){
   });
 }
 
+// ===== BACHECA: destinatari =====
+function destinatariDi(m){
+  var d=m && m.destinatari; if(!d) return null;   // nessun filtro = tutti
+  var plessi=d.plessi||[], qual=d.qualifiche||[], pers=d.persone||[];
+  return anagrafiche.filter(function(a){ return pers.indexOf(a.nome)>=0 || plessi.indexOf(a.plesso)>=0 || qual.indexOf(a.qualifica)>=0; }).map(function(a){ return a.nome; });
+}
+function avvisoPerMe(m, nome){ var d=destinatariDi(m); return !d || d.indexOf(nome)>=0; }
+function descrizioneDestinatari(m){
+  var d=m && m.destinatari; if(!d) return '';
+  var p=[]; if(d.plessi && d.plessi.length) p.push('plessi: '+d.plessi.join(', ')); if(d.qualifiche && d.qualifiche.length) p.push(d.qualifiche.join(', ')); if(d.persone && d.persone.length) p.push(d.persone.length+(d.persone.length===1?' persona':' persone'));
+  return p.join(' + ');
+}
+function avvDestToggle(){
+  var solo=document.querySelector('input[name="avvDest"]:checked'); var b=document.getElementById('avvDestBox');
+  if(b && solo) b.style.display = solo.value==='alcuni' ? 'block' : 'none';
+  avvDestConta();
+}
+function avvDestConta(){
+  var el=document.getElementById('avvDestConta'); if(!el) return;
+  var r=document.querySelector('input[name="avvDest"]:checked');
+  if(!r || r.value!=='alcuni'){ el.textContent='Destinatari: tutti ('+anagrafiche.length+' persone)'; return; }
+  var val=function(cls){ return Array.prototype.map.call(document.querySelectorAll('.'+cls+':checked'), function(c){ return c.getAttribute('data-v'); }); };
+  var dest={plessi:val('avvDP'), qualifiche:val('avvDQ'), persone:val('avvDN')};
+  el.textContent='Destinatari: '+destinatariDi({destinatari:dest}).length+' persone';
+}
+function avvDestFiltra(){
+  var q=(document.getElementById('avvDestCerca').value||'').toLowerCase();
+  document.querySelectorAll('.avvDNriga').forEach(function(r){ r.style.display = r.getAttribute('data-n').toLowerCase().indexOf(q)>=0 ? 'flex' : 'none'; });
+}
+
 function apriFormBacheca(){
   _allegatoTmp=null;
   var modal=document.getElementById('modalNuovoAvviso');
@@ -3102,10 +3136,27 @@ function apriFormBacheca(){
     +'<button onclick="chiudiFormBacheca()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
     +'<label style="font-size:12px; font-weight:700">Titolo:</label><input id="avvTitolo" style="'+inp+'" placeholder="Es. Riunione del 10 dicembre">'
     +'<label style="font-size:12px; font-weight:700; display:block; margin-top:8px">Testo:</label><textarea id="avvTesto" rows="6" style="'+inp+'" placeholder="Scrivi qui il messaggio"></textarea>'
+    +(function(){
+      var plessi=[], qual=[]; anagrafiche.forEach(function(a){ if(a.plesso && plessi.indexOf(a.plesso)<0) plessi.push(a.plesso); if(a.qualifica && qual.indexOf(a.qualifica)<0) qual.push(a.qualifica); }); plessi.sort(); qual.sort();
+      var chk=function(cls,v){ return '<label style="display:flex; gap:6px; align-items:center; font-size:12px; padding:3px 0; cursor:pointer"><input type="checkbox" class="'+cls+'" data-v="'+esc(v)+'" onchange="avvDestConta()" style="width:18px; height:18px">'+esc(v)+'</label>'; };
+      var persone=anagrafiche.map(function(a){ return a.nome; }).sort().map(function(n){ return '<label class="avvDNriga" data-n="'+esc(n)+'" style="display:flex; gap:6px; align-items:center; font-size:12px; padding:3px 0; cursor:pointer"><input type="checkbox" class="avvDN" data-v="'+esc(n)+'" onchange="avvDestConta()" style="width:18px; height:18px">'+esc(n)+'</label>'; }).join('');
+      return '<div style="margin-top:10px; border:1.5px solid #fcd34d; background:#fffbeb; border-radius:10px; padding:8px">'
+        +'<div style="font-size:12px; font-weight:800; color:#92400e">👥 A chi va questa comunicazione?</div>'
+        +'<label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-top:6px; cursor:pointer"><input type="radio" name="avvDest" value="tutti" checked onchange="avvDestToggle()" style="width:18px; height:18px"> Tutti</label>'
+        +'<label style="display:flex; gap:8px; align-items:center; font-size:13px; margin-top:4px; cursor:pointer"><input type="radio" name="avvDest" value="alcuni" onchange="avvDestToggle()" style="width:18px; height:18px"> Solo alcuni (scelgo io)</label>'
+        +'<div id="avvDestBox" style="display:none; margin-top:8px">'
+        +'<div style="font-size:11px; font-weight:800; margin-top:4px">Per plesso</div>'+plessi.map(function(x){ return chk('avvDP',x); }).join('')
+        +'<div style="font-size:11px; font-weight:800; margin-top:6px">Per qualifica</div>'+qual.map(function(x){ return chk('avvDQ',x); }).join('')
+        +'<div style="font-size:11px; font-weight:800; margin-top:6px">Persone singole</div><input type="text" id="avvDestCerca" placeholder="cerca un nome..." oninput="avvDestFiltra()" style="width:100%; padding:6px; border:1.5px solid #cbd5e1; border-radius:6px; box-sizing:border-box; margin:3px 0">'
+        +'<div style="max-height:150px; overflow:auto; border:1px solid #e2e8f0; border-radius:6px; padding:4px; background:white">'+persone+'</div>'
+        +'<div style="font-size:10px; color:#64748b; margin-top:4px">Riceve la comunicazione chi rientra in almeno una delle scelte.</div></div>'
+        +'<div id="avvDestConta" style="font-size:12px; font-weight:700; color:#92400e; margin-top:6px"></div></div>';
+    })()
     +'<label style="font-size:12px; font-weight:700; display:block; margin-top:8px">📎 Allegato (facoltativo: PDF, foto, Word, Excel - max 2 MB):</label>'
     +'<input type="file" id="avvFile" accept=".pdf,.doc,.docx,.xls,.xlsx,.txt,image/*" onchange="scegliAllegato(this)" style="width:100%; font-size:13px">'
     +'<div id="avvFileInfo" style="font-size:12px; color:#0369a1; margin-top:4px"></div>'
     +'<button id="avvBtn" onclick="pubblicaNuovoAvviso()" style="margin-top:12px; width:100%; background:#f59e0b; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer">📢 Pubblica avviso</button></div>';
+  avvDestConta();
 }
 function chiudiFormBacheca(){ var m=document.getElementById('modalNuovoAvviso'); if(m) m.style.display='none'; _allegatoTmp=null; }
 
@@ -3129,6 +3180,13 @@ async function pubblicaNuovoAvviso(){
   var btn=document.getElementById('avvBtn'); btn.disabled=true; btn.textContent='⏳ Invio in corso...';
   var ora=new Date();
   var avviso={titolo:titolo, testo:testo, autore:"Segreteria IC Frosinone 2", data:ora.toLocaleDateString('it-IT')+' '+ora.toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'}), timestamp:Date.now()};
+  var modoDest=document.querySelector('input[name="avvDest"]:checked');
+  if(modoDest && modoDest.value==='alcuni'){
+    var vv=function(cls){ return Array.prototype.map.call(document.querySelectorAll('.'+cls+':checked'), function(c){ return c.getAttribute('data-v'); }); };
+    var dest={plessi:vv('avvDP'), qualifiche:vv('avvDQ'), persone:vv('avvDN')};
+    if(!dest.plessi.length && !dest.qualifiche.length && !dest.persone.length){ btn.disabled=false; btn.textContent='📢 Pubblica avviso'; alert('Hai scelto "Solo alcuni": spunta almeno un plesso, una qualifica o una persona (oppure scegli "Tutti").'); return; }
+    avviso.destinatari=dest;
+  }
   if(_allegatoTmp){ avviso.allegato={nome:_allegatoTmp.nome, tipo:_allegatoTmp.tipo, kb:Math.round(_allegatoTmp.dati.length*0.75/1024)}; }
   var chiave=null;
   try{
@@ -3186,6 +3244,7 @@ function apriAvviso(fk){
     +'<div style="display:flex; justify-content:space-between; align-items:flex-start; gap:8px"><div><div style="font-size:11px; color:#94a3b8">'+esc(m.autore||'Segreteria')+' - '+esc(m.data||'')+'</div>'
     +'<h3 style="margin:2px 0 0 0; color:#1e293b; font-size:17px">'+esc(m.titolo||'Avviso')+'</h3></div>'
     +'<button onclick="chiudiAvviso()" style="background:#64748b; color:white; border:0; border-radius:50%; width:30px; height:30px; font-weight:800; cursor:pointer; flex:none">✕</button></div>'
+    +(m.destinatari ? '<div style="margin-top:8px; font-size:12px; font-weight:700; color:#92400e">👥 Per: '+esc(descrizioneDestinatari(m))+'</div>' : '')
     +'<div style="margin-top:10px; font-size:14px; color:#334155; white-space:pre-wrap; word-break:break-word">'+esc(m.testo||'')+'</div>'+all+lettura+'</div>';
   if(memo) verificaLettura(fk, memo);
 }
@@ -3215,7 +3274,8 @@ async function mostraChiHaLetto(fk){
   try{ var r=await fetchWithFallback("/bacheca_letture/"+fk+".json"); var v=await r.json(); if(v){ Object.keys(v).forEach(function(k){ if(v[k] && v[k].nome) letti.push(v[k]); }); } }catch(e){ alert('Errore nel leggere i dati.'); return; }
   letti.sort(function(a,b){ return (a.nome<b.nome)?-1:1; });
   var set=new Set(letti.map(function(x){ return x.nome; }));
-  var non=anagrafiche.map(function(a){ return a.nome; }).filter(function(n){ return !set.has(n); }).sort();
+  var dest=destinatariDi(m);
+  var non=anagrafiche.map(function(a){ return a.nome; }).filter(function(n){ return !set.has(n) && (!dest || dest.indexOf(n)>=0); }).sort();
   var modal=document.getElementById('modalChiLetto');
   if(!modal){
     modal=document.createElement('div'); modal.id='modalChiLetto';
@@ -3227,7 +3287,7 @@ async function mostraChiHaLetto(fk){
     +'<div style="display:flex; justify-content:space-between; align-items:center"><h3 style="margin:0; font-size:15px">👁️ '+esc(m?m.titolo:'Comunicazione')+'</h3><button onclick="document.getElementById(\'modalChiLetto\').style.display=\'none\'" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
     +'<div style="margin-top:8px; font-weight:800; color:#16a34a; font-size:13px">✅ Hanno letto ('+letti.length+')</div>'
     +(letti.map(function(x){ return '<div style="font-size:12px; padding:4px 0; border-bottom:1px solid #f1f5f9">'+esc(x.nome)+' <span style="color:#94a3b8">- '+esc(x.data||'')+'</span></div>'; }).join('') || '<div style="font-size:12px; color:#94a3b8">Nessuno</div>')
-    +'<div style="margin-top:12px; font-weight:800; color:#dc2626; font-size:13px">⏳ Non hanno ancora letto ('+non.length+')</div>'
+    +'<div style="margin-top:12px; font-weight:800; color:#dc2626; font-size:13px">⏳ Non hanno ancora letto ('+non.length+(dest?' su '+dest.length+' destinatari':'')+')</div>'
     +(non.map(function(n){ return '<div style="font-size:12px; padding:4px 0; border-bottom:1px solid #f1f5f9">'+esc(n)+'</div>'; }).join('') || '<div style="font-size:12px; color:#94a3b8">Tutti hanno letto</div>')
     +'<div style="font-size:10px; color:#94a3b8; margin-top:8px">Conta chi ha toccato "Ho letto" scegliendo il proprio nome.</div></div>';
 }
@@ -3291,9 +3351,64 @@ function chiudiModalPinSicuro(){
   callbackPinSicuro = null;
 }
 
-function confermaPinSicuro(){
+// ===== PIN amministratore: modificabile =====
+const PIN_DEFAULT='211285';
+let pinAdminHash=''; try{ pinAdminHash=localStorage.getItem('pin_admin_hash_v1')||''; }catch(e){}
+async function sha256Hex(txt){
+  const b=await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
+  return Array.from(new Uint8Array(b)).map(function(x){ return x.toString(16).padStart(2,'0'); }).join('');
+}
+function pinHash(pin){ return sha256Hex('iotimbro-icfrosinone2:'+pin); }
+async function pinCorretto(pin){
+  pin=String(pin||'').trim(); if(!pin) return false;
+  if(pinAdminHash){ try{ return (await pinHash(pin))===pinAdminHash; }catch(e){ return false; } }
+  return pin===PIN_DEFAULT;
+}
+async function caricaPinAdmin(){
+  try{
+    const r=await fetchWithFallback("/config/pinAdminHash.json"); const v=await r.json();
+    const h=(typeof v==='string') ? v : '';
+    if(h!==pinAdminHash){ pinAdminHash=h; try{ if(h) localStorage.setItem('pin_admin_hash_v1',h); else localStorage.removeItem('pin_admin_hash_v1'); }catch(e){} }
+  }catch(e){}
+}
+function apriCambiaPin(){
+  var modal=document.getElementById('modalCambiaPin');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='modalCambiaPin';
+    modal.style='position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:99998; display:flex; align-items:center; justify-content:center; padding:10px; box-sizing:border-box';
+    document.body.appendChild(modal);
+  }
+  modal.style.display='flex';
+  var inp='width:100%; padding:10px; border:1.5px solid #cbd5e1; border-radius:8px; box-sizing:border-box; font-size:16px';
+  modal.innerHTML='<div style="background:white; border-radius:14px; padding:16px; width:100%; max-width:420px; border:2.5px solid #f59e0b">'
+    +'<div style="display:flex; justify-content:space-between; align-items:center"><h3 style="margin:0; color:#b45309; font-size:16px">🔑 Cambia PIN amministratore</h3>'
+    +'<button onclick="chiudiCambiaPin()" style="background:#64748b; color:white; border:0; border-radius:50%; width:28px; height:28px; font-weight:800; cursor:pointer">✕</button></div>'
+    +'<label style="font-size:12px; font-weight:700; display:block; margin-top:10px">PIN attuale:</label><input type="password" id="pinVecchio" inputmode="numeric" autocomplete="off" style="'+inp+'">'
+    +'<label style="font-size:12px; font-weight:700; display:block; margin-top:8px">Nuovo PIN (da 4 a 8 cifre):</label><input type="password" id="pinNuovo" inputmode="numeric" maxlength="8" autocomplete="off" style="'+inp+'">'
+    +'<label style="font-size:12px; font-weight:700; display:block; margin-top:8px">Ripeti il nuovo PIN:</label><input type="password" id="pinNuovo2" inputmode="numeric" maxlength="8" autocomplete="off" style="'+inp+'">'
+    +'<div style="font-size:11px; color:#64748b; margin-top:8px">Il nuovo PIN vale per tutti i tablet. Annotalo in un posto sicuro: non si può rivedere.</div>'
+    +'<button onclick="salvaNuovoPin()" style="margin-top:10px; width:100%; background:#f59e0b; color:white; border:0; border-radius:10px; padding:12px; font-weight:900; font-size:14px; cursor:pointer">💾 Salva nuovo PIN</button></div>';
+}
+function chiudiCambiaPin(){ var m=document.getElementById('modalCambiaPin'); if(m) m.style.display='none'; }
+async function salvaNuovoPin(){
+  var vecchio=(document.getElementById('pinVecchio').value||'').trim(), n1=(document.getElementById('pinNuovo').value||'').trim(), n2=(document.getElementById('pinNuovo2').value||'').trim();
+  if(!(await pinCorretto(vecchio))){ alert('❌ Il PIN attuale non è corretto.'); return; }
+  if(!/^\d{4,8}$/.test(n1)){ alert('Il nuovo PIN deve avere da 4 a 8 cifre (solo numeri).'); return; }
+  if(n1!==n2){ alert('I due nuovi PIN non coincidono.'); return; }
+  if(n1===vecchio){ alert('Il nuovo PIN è uguale a quello attuale.'); return; }
+  if(/^(\d)\1+$/.test(n1) || '0123456789'.indexOf(n1)>=0 || '9876543210'.indexOf(n1)>=0){ alert('PIN troppo semplice (cifre uguali o in fila): scegline un altro.'); return; }
+  try{
+    var h=await pinHash(n1);
+    await fetchWithFallback("/config/pinAdminHash.json",{method:"PUT", body:JSON.stringify(h), headers:JSON_H});
+    pinAdminHash=h; try{ localStorage.setItem('pin_admin_hash_v1',h); }catch(e){}
+    chiudiCambiaPin();
+    alert('✅ PIN cambiato. Da ora serve il nuovo PIN su tutti i tablet (gli altri lo ricevono entro circa 30 secondi).');
+  }catch(e){ alert('Errore: PIN non cambiato ('+(ultimoErroreRete||'rete')+'). Riprova.'); }
+}
+
+async function confermaPinSicuro(){
   var val = document.getElementById('inputPinSegreto').value.trim();
-  if(val === "211285"){
+  if(await pinCorretto(val)){
     var cb = callbackPinSicuro;
     chiudiModalPinSicuro();
     if(cb) cb();
@@ -3302,7 +3417,7 @@ function confermaPinSicuro(){
   }
 }
 
-setInterval(()=>{ caricaPresenzeManuali(); caricaStraordinari(); caricaVariazioni(); }, 30000);
+setInterval(()=>{ caricaPresenzeManuali(); caricaStraordinari(); caricaVariazioni(); caricaPinAdmin(); }, 30000);
 setInterval(()=>{ caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); caricaConfig(); }, 3000);
 
 try{ applicaModoProva(); }catch(e){}
@@ -3310,7 +3425,7 @@ window.addEventListener('load', ()=>{ try{ applicaModoProva(); }catch(e){}
   renderPlessiUI();
   try{ caricaAnagraficaCloud(); }catch(e){}
   try{ aggiornaLog(); }catch(e){}
-  setTimeout(()=>{ try{ caricaPresenzeManuali(); caricaStraordinari(); caricaVariazioni(); caricaConfig(); caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); aggiornaLogNoGps(); }catch(e){} }, 500);
+  setTimeout(()=>{ try{ caricaPinAdmin(); caricaPresenzeManuali(); caricaStraordinari(); caricaVariazioni(); caricaConfig(); caricaCondivise(); caricaBacheca(); caricaNoGps(); caricaGiustificativi(); aggiornaLogNoGps(); }catch(e){} }, 500);
   try{ attivaGPS(); }catch(e){}
   setTimeout(()=>{ try{ attivaGPS(); avviaWatchGPS(); }catch(e){} }, 1000);
 });
@@ -3319,6 +3434,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
   setTimeout(()=>{ try{ attivaGPS(); avviaWatchGPS(); }catch(e){} }, 500);
 });
 document.getElementById('dipendente')?.addEventListener('change', onDipendenteSelezionato);
+document.getElementById('dipendente')?.addEventListener('change', ()=>{ try{ caricaBacheca(); }catch(e){} });
 </script>
 <script>
 if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){});});}
